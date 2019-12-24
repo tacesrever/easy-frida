@@ -1,0 +1,15 @@
+{
+  "name": "easy-frida",
+  "version": "1.0.0",
+  "description": "easy-frida",
+  "main": "main.js",
+  "author": "tacesrever",
+  "scripts": {
+    "prepare": "npm run build",
+    "build": "frida-compile -x main.js -o ../_main.js"
+  },
+  "devDependencies": {
+    "frida-compile": "^9.1.0"
+  },
+  "dependencies": {}
+}

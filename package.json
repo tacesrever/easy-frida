@@ -1,0 +1,14 @@
+{
+  "name": "easy-frida",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    
+  },
+  "author": "tacesrever",
+  "dependencies": {
+    "async-lock": "^1.2.2",
+    "frida": "^12.8.0"
+  }
+}
