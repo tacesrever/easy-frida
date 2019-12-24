@@ -1,7 +1,7 @@
 {
-  "name": "easy-frida",
+  "name": "easy-frida-agent",
   "version": "1.0.0",
-  "description": "easy-frida",
+  "description": "agent",
   "main": "main.js",
   "author": "tacesrever",
   "scripts": {
