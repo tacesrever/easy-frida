@@ -6,7 +6,7 @@
   "author": "tacesrever",
   "scripts": {
     "prepare": "npm run build",
-    "build": "frida-compile -x main.js -o ../_main.js"
+    "build": "frida-compile main.js -o ../_main.js"
   },
   "devDependencies": {
     "frida-compile": "^9.1.0"

@@ -29,12 +29,12 @@ rpc.exports.exec = async function (code) {
 }
 
 exports.interact = '\
+    var interactCode;\
+    var result;\
     send({"type":"scope", "act":"enter"});\
-    console.log("[+] Enter local scope, input \'/q\' to exit.");\
+    console.log("[+] Enter local scope, input /q to exit.");\
     while(true) {\
-        let interactCode;\
-        let result;\
-        let codeRecv = recv("scope", function(message) {\
+        var codeRecv = recv("scope", function(message) {\
             interactCode = message["code"];\
         });\
         codeRecv.wait();\

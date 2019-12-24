@@ -31,7 +31,12 @@ async function sleep(ms) {
 
 function compile(fileName) {
     let hash = md5(fileName);
-    let lasthash = fs.readFileSync(path.join(agentDir, "lasthash"));
+    let lasthash;
+    try {
+        lasthash = fs.readFileSync(path.join(agentDir, "lasthash"));
+    } catch (e) {
+        lasthash = '';
+    }
     if(hash == lasthash) {
         return true;
     }
@@ -134,14 +139,20 @@ class EasyFrida {
         }
     }
     
-    async watch(file, target = this.target, enableChildGating) {
+    async inject(file = this.scriptfile, target = this.target, enableChildGating) {
         this.scriptfile = file;
         await this.attach(target, enableChildGating).catch( async () => {
             await this.run(target, enableChildGating);
         });
-        await this.load(file).catch( e => {console.log(e);});
-        await this.device.resume(this.curProc.session.pid).catch(()=>{});
-        
+        this.load(file).catch( e => {console.log(e);});
+    }
+    
+    resume() {
+        this.device.resume(this.curProc.session.pid).catch(()=>{});
+    }
+    
+    async watch(file = this.scriptfile, target = this.target, enableChildGating) {
+        await this.inject(file, target, enableChildGating);
         let timer = null;
         fs.watch(file, async () => {
             // avoid reload at script's local scope.
@@ -154,22 +165,24 @@ class EasyFrida {
     }
     
     async reload(file = this.scriptfile) {
-        lock.acquire("reload", async () => {
-            let curpid = this.curProc.session.pid;
-            let detached = [];
-            for(let i in this.procList) {
-                this.curProc = this.procList[i];
-                await this.load(file);
-            }
-            
-            for(let i in this.procList) {
-                if(this.procList[i].session.pid == curpid) {
+        if(this.procList.length) {
+            lock.acquire("reload", async () => {
+                let curpid = this.curProc.session.pid;
+                let detached = [];
+                for(let i in this.procList) {
                     this.curProc = this.procList[i];
-                    break;
+                    await this.load(file);
                 }
-            }
-            this._onLog("");
-        });
+                
+                for(let i in this.procList) {
+                    if(this.procList[i].session.pid == curpid) {
+                        this.curProc = this.procList[i];
+                        break;
+                    }
+                }
+                this._onLog("");
+            });
+        }
     }
     
     async load(file = this.scriptfile) {
@@ -180,7 +193,8 @@ class EasyFrida {
         });
         const source = fs.readFileSync(require.resolve("./_main.js"), "utf-8");
         
-        let script = await curProc.session.createScript(source, {runtime: 'v8'});
+        // let script = await curProc.session.createScript(source, {runtime: 'v8'});
+        let script = await curProc.session.createScript(source);
         script.logHandler = this._onConsoleMessage.bind(this);
         script.message.connect(this._onMessage.bind(this));
         // script.destroyed.connect();
@@ -406,18 +420,21 @@ class EasyFrida {
         this.device.childAdded.connect(this._onChild);
         this.device.processCrashed.connect(this._onCrashed);
     }
-    
+    // OSDEP
     async startServer() {
-        await this.device.getProcess(this.server).catch(async e => {
-            this._onLog("[+] starting server...");
-            // OSDEP
-            adb_shell(`cd ${this.serverDir};nohup ${this.serverDir}${this.server} \\&`, 1).catch(()=>{});
-        });
+        if (this.location == 'usb') {
+            await this.device.getProcess(this.server).catch(async e => {
+                this._onLog("[+] starting server...");
+                adb_shell(`cd ${this.serverDir};nohup ${this.serverDir}${this.server} \\&`, 1).catch(()=>{});
+            });
+        }
     }
     
     async stopServer() {
         // OSDEP
-        await adb_shell(`pkill -f ${this.server}`, 1);
+        if (this.location == 'usb') {
+            await adb_shell(`pkill -f ${this.server}`, 1);
+        }
     }
     
     connect() {
@@ -505,7 +522,7 @@ class EasyFrida {
     
     async detach() {
         for(let i in this.procList) {
-            this.procList[i].script.disconnect(this.procList[i].onDetach);
+            this.procList[i].session.detached.disconnect(this.procList[i].onDetach);
             await this.procList[i].session.detach().catch(()=>{});
         }
         

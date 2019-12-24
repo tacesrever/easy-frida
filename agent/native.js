@@ -26,7 +26,7 @@ function makefunction(liborAddr, name, retType, argList, options) {
     } else faddr = ptr(liborAddr);
     
     if(!faddr) {
-        console.log("[+] makefunction failed to find faddr for", name);
+        // console.log("[+] makefunction failed to find faddr for", name);
         return null;
     }
     
@@ -194,6 +194,17 @@ function traceCalled ( liborAddr, funcName ) {
 }
 exports.traceCalled = traceCalled;
 
+function stopAt(addr, name) {
+    addr = ptr(addr);
+    Interceptor.attach(addr, {
+        onEnter: function(args) {
+            console.log("stopAt", addr, name);
+            eval(easy_frida.interact);
+        }
+    });
+}
+exports.stopAt = stopAt;
+
 // traceFunction(null, 'open', 'i.fd', ['s.name']);
 // retType can be Array:
 // traceFunction(null, 'memcpy', [
@@ -267,7 +278,7 @@ function traceFunction (liborAddr, funcName, retType, argList, hooks) {
                 logMsg = logMsg.slice(0, -2);
             }
             else {
-                logMsg += `[${this.tid}](${this.fid}): ${funcName} returned ${readNativeArg(retVal, retType))}.`;
+                logMsg += `[${this.tid}](${this.fid}): ${funcName} returned ${readNativeArg(retVal, retType)}.`;
             }
             logMsg += '\n';
             
@@ -337,6 +348,7 @@ function libraryOnLoad(libname, fn) {
 }
 exports.libraryOnLoad = libraryOnLoad;
 
+
 let _dlopen = makefunction(null, 'dlopen', 'pointer', ['string', 'int']);
 let dlclose = makefunction(null, 'dlclose', 'pointer', ['pointer']);
 exports.dlclose = dlclose;
@@ -356,7 +368,14 @@ function showThreads() {
     let threads = Process.enumerateThreads();
     for(let idx in threads) {
         let t = threads[idx];
-        log(`[${t.id}:${t.state}] pc:${symbolName(t.context.pc)}, lr:${symbolName(t.context.lr)}`);
+        switch(Process.arch) {
+            case 'arm':
+                console.log(`[${t.id}:${t.state}] pc:${symbolName(t.context.pc)}, lr:${symbolName(t.context.lr)}`);
+                break;
+            case 'ia32':
+                console.log(`[${t.id}:${t.state}] pc:${symbolName(t.context.pc)}`);
+                break;
+        }
     }
 }
 exports.showThreads = showThreads;
