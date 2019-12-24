@@ -3,7 +3,7 @@ const easy_frida = require("./easy_frida.js");
 
 function backtrace( context ) {
     let bt = Thread.backtrace(context, Backtracer.ACCURATE)
-        .map(DebugSymbol.fromAddress).join("\n\t");
+        .map(symbolName).join("\n\t");
     console.log('\t' + bt);
 }
 exports.backtrace = backtrace;

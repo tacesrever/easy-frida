@@ -401,21 +401,10 @@ class EasyFrida {
     
     async _setupDevice() {
         if(!this.device) {
-            this.device = await this._getDevice();
+            this.device = await this.getDevice({ timeout: null });
         }
         this.device.childAdded.connect(this._onChild);
         this.device.processCrashed.connect(this._onCrashed);
-    }
-    
-    async _getDevice() {
-        return new Promise(async (resolve, reject) => {
-            let mgr = frida.getDeviceManager();
-            let device = await this.getDevice().catch(()=>{});
-            if(device) resolve(device);
-            else {
-                mgr.added.connect( d => { resolve(d); } );
-            }
-        });
     }
     
     async startServer() {

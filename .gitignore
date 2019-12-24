@@ -4,5 +4,6 @@ package-lock.json
 agent/node_modules/
 agent/package-lock.json
 
+agent/lasthash
 agent/main.js
 _main.js
