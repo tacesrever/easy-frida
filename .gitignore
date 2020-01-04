@@ -2,6 +2,7 @@
 node_modules/
 package-lock.json
 agent/node_modules/
+agent/custom_modules/
 agent/package-lock.json
 
 agent/lasthash

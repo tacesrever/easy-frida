@@ -26,7 +26,7 @@ function makefunction(liborAddr, name, retType, argList, options) {
     } else faddr = ptr(liborAddr);
     
     if(!faddr) {
-        // console.log("[+] makefunction failed to find faddr for", name);
+        console.log("[+] makefunction failed to find faddr for", name);
         return null;
     }
     
@@ -38,7 +38,7 @@ function makefunction(liborAddr, name, retType, argList, options) {
     if(retType == 'string') nativef = new NativeFunction(faddr, 'pointer', argType, options);
     else nativef = new NativeFunction(faddr, retType, argType, options);
     
-    return () => {
+    return function() {
         let args = [];
         for(let i in arguments) {
             if(argList[i] == 'string' && typeof arguments[i] == 'string') {
@@ -291,6 +291,8 @@ function traceFunction (liborAddr, funcName, retType, argList, hooks) {
 }
 exports.traceFunction = traceFunction;
 
+
+
 // fn(0) called before lib's init functions called,
 // fn(1) after.
 let monitor_libs = [];
@@ -347,22 +349,6 @@ function libraryOnLoad(libname, fn) {
     }
 }
 exports.libraryOnLoad = libraryOnLoad;
-
-
-let _dlopen = makefunction(null, 'dlopen', 'pointer', ['string', 'int']);
-let dlclose = makefunction(null, 'dlclose', 'pointer', ['pointer']);
-exports.dlclose = dlclose;
-let dlerror = makefunction(null, 'dlerror', 'string', []);
-function dlopen(dlname) {
-    const RTLD_LOCAL=0, RTLD_LAZY=1, RTLD_NOW=2, RTLD_NOLOAD=4, RTLD_DEEPBIND=8;
-    const RTLD_GLOBAL=0x100, RTLD_NODELETE=0x1000;
-    if(!_dlopen) return null;
-    var ret = _dlopen(dlname, RTLD_NOW);
-    if(ret.isNull()) console.log(dlerror());
-    else console.log("[+] loaded:", dlname);
-    return ret;
-}
-exports.dlopen = dlopen;
 
 function showThreads() {
     let threads = Process.enumerateThreads();
