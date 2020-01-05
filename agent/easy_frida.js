@@ -82,3 +82,13 @@ function nullfunc() {
 exports.nullfunc = nullfunc;
 let nullcb = new NativeCallback(nullfunc, 'int', []);
 exports.nullcb = nullcb;
+
+let serverModule = null;
+if(Process.arch === "arm") {
+    serverModule = Process.findModuleByName("frida-agent-32.so");
+} else if (Process.arch === "arm64") {
+    serverModule = Process.findModuleByName("frida-agent-64.so");
+}
+let isServer = false;
+if(serverModule !== null) isServer = true;
+exports.isServer = isServer;

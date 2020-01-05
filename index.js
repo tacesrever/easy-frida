@@ -187,7 +187,7 @@ class EasyFrida {
                 
                 if(this.procList.length !== 0) {
                     this.interactLabel = this.interactLabels.remote;
-                    if(this.repl) this.repl.setPrompt(this.interactLabels);
+                    if(this.repl) this.repl.setPrompt(this.interactLabel);
                 }
                 
                 this._onLog("");

@@ -251,6 +251,7 @@ function fromObject(handle) {
                 let curfield = field;
                 Object.defineProperty(self, name, {
                     get: function () {
+                        if(self.$handle.isNull()) return null;
                         const fieldType = api.il2cpp_field_get_type(curfield);
                         const fieldClz = api.il2cpp_class_from_type(fieldType);
                         if( api.il2cpp_class_is_valuetype(fieldClz)
@@ -264,6 +265,7 @@ function fromObject(handle) {
                         }
                     },
                     set: function (value) {
+                        if(self.$handle.isNull()) return;
                         const fieldType = api.il2cpp_field_get_type(curfield);
                         const fieldClz = api.il2cpp_class_from_type(fieldType);
                         if( api.il2cpp_class_is_valuetype(fieldClz) 

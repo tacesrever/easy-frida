@@ -83,6 +83,7 @@ const modulesApiProxy = new Proxy(modulesApi, {
         if(module === null) return;
         
         const wrapper = {};
+        wrapper.$module = module;
         module.enumerateExports().forEach(function (exp) {
             if(exp.name in wrapper) {
                 // console.log(exp.type, exp.name, exp.address);
@@ -536,13 +537,6 @@ exports.findElfSegment = findElfSegment;
 // for case gadget is globally injected,
 // sometimes it will suspend when use server at same time.
 function avoidConflict() {
-    let serverModule = null;
-    if(Process.arch === "arm") {
-        serverModule = Process.findModuleByName("frida-agent-32.so");
-    } else if (Process.arch === "arm64") {
-        serverModule = Process.findModuleByName("frida-agent-64.so");
-    }
-    
     function diableGadgets() {
         const fridaGadget = Process.findModuleByName("libadirf.so");
         const initseg = findElfSegment(fridaGadget, ".init_array");
@@ -553,7 +547,7 @@ function avoidConflict() {
             initseg.addr.add(offset).writePointer(easy_frida.nullcb);
         }
     }
-    if(serverModule !== null) {
+    if(easy_frida.isServer) {
         libraryOnLoad("libqti_performance.so", diableGadgets);
     }
 }
