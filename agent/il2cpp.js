@@ -63,9 +63,12 @@ function getApi() {
     const libil2cpp = Process.findModuleByName("libil2cpp.so");
     if(libil2cpp) {
         for(let name in apiFunctions) {
-            const address = libil2cpp.getExportByName(name);
+            const address = libil2cpp.findExportByName(name);
             const funcType = apiFunctions[name];
-            tempApi[name] = new NativeFunction(address, funcType[0], funcType[1]);
+            if(address) tempApi[name] = new NativeFunction(address, funcType[0], funcType[1]);
+            else {
+                console.log(`[E] function ${name} not found`);
+            }
         }
         cachedApi = tempApi;
         return cachedApi;
@@ -109,12 +112,11 @@ function findImageByName(name) {
     const api = getApi();
     if(api === null) return;
     const images = enumerateImages();
-    images.forEach(function(image){
-        if(image.name === name) return image;
-    });
+    for(let i in images) {
+        if(images[i].name === name) return image;
+    }
     return null;
 }
-
 
 function isStaticField(field) {
     const api = getApi();

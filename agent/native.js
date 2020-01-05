@@ -55,6 +55,105 @@ function makefunction(liborAddr, name, retType, argList, options) {
 }
 exports.makefunction = makefunction;
 
+const modulesApi = {};
+function apiCaller() {
+    if(this.nativeFunction) {
+        return this.nativeFunction.apply(this.nativeFunction, arguments);
+    }
+    if(this.signature !== undefined) {
+        this.nativeFunction = makefunction(
+            this.ptr, '',
+            this.signature.retType, 
+            this.signature.argList, 
+            this.signature.options);
+        return this.nativeFunction.apply(this.nativeFunction, arguments);
+    }
+    console.log(`[E] signature for function ${this.name} hasn't defined.`);
+    return null;
+}
+const modulesApiProxy = new Proxy(modulesApi, {
+    has(target, property) {
+        return findModuleByName(property) !== null;
+    },
+    get(target, property) {
+        if(property in target) {
+            return target[property];
+        }
+        const module = findModuleByName(property);
+        if(module === null) return;
+        
+        const wrapper = {};
+        module.enumerateExports().forEach(function (exp) {
+            if(exp.name in wrapper) {
+                // console.log(exp.type, exp.name, exp.address);
+                return;
+            }
+            if(exp.type === 'function') {
+                const functionWrapper = {};
+                functionWrapper.ptr = exp.address;
+                functionWrapper.name = exp.name;
+                functionWrapper.wrapper = apiCaller.bind(functionWrapper);
+                functionWrapper.wrapper.ptr = exp.address;
+                Object.defineProperty(functionWrapper.wrapper, 'signature', {
+                    get: function() {
+                       return functionWrapper.signature;
+                    },
+                    set: function(signature) {
+                        functionWrapper.signature = {
+                            retType: signature[0],
+                            argList: signature[1],
+                            options: signature.length === 3 ? signature[2] : undefined
+                        }
+                    }
+                });
+                Object.defineProperty(wrapper, exp.name, {
+                    get: function() {
+                        return functionWrapper.wrapper;
+                    },
+                    set: function(signature) {
+                        // TODO: replace / attach
+                        functionWrapper.signature = {
+                            retType: signature[0],
+                            argList: signature[1],
+                            options: signature.length === 3 ? signature[2] : undefined
+                        }
+                    }
+                });
+            }
+            else if(exp.type === 'variable') {
+                Object.defineProperty(wrapper, exp.name, {
+                    get: function() {
+                        return exp.address;
+                    },
+                    set: function(value) {
+                        if(typeof(value) === 'number' || value instanceof NativePointer)
+                            exp.address.writePointer(ptr(value));
+                        else if(typeof(value) === 'string') {
+                            const memstring = Memory.allocUtf8String(value);
+                            exp.address.writePointer(memstring);
+                        }
+                        // databuffer / array
+                    }
+                });
+            }
+        });
+        target[property] = wrapper;
+        return wrapper;
+    }
+});
+exports.modules = modulesApiProxy;
+
+function findModuleByName(name) {
+    let result = Process.findModuleByName(`lib${name}.so`);
+    if(result === null) {
+        result = Process.findModuleByName(`${name}.so`);
+    }
+    if(result === null) {
+        result = Process.findModuleByName(`${name}`);
+    }
+    return result;
+}
+
 let customNames = [];
 function setName( address, size, name ) {
     if(typeof(address) == 'object') address = parseInt(address.toString(), 16);
@@ -292,15 +391,14 @@ function traceFunction (liborAddr, funcName, retType, argList, hooks) {
 exports.traceFunction = traceFunction;
 
 
-
 // fn(0) called before lib's init functions called,
 // fn(1) after.
 let monitor_libs = [];
 let linker = null;
 function libraryOnLoad(libname, fn) {
-    // firstly use some reverse tool to find call_constructors's address in /system/bin/linker.
-    // only tested on android.
+    // __dl__ZN6soinfo17call_constructorsEv in /system/bin/linker | /system/bin/linker64
     const addr_arm = 0x1A63D;
+    const addr_arm64 = 0x2FAC4;
     const addr_ia32 = 0x2DE8;
     
     monitor_libs.push([libname, fn]);
@@ -310,15 +408,11 @@ function libraryOnLoad(libname, fn) {
         if(Process.arch == "arm") {
             call_constructors = linker.base.add(addr_arm); 
         } else if (Process.arch == "arm64") {
-            console.log("libraryOnLoad: TODO on arm64's linker");
-            return;
+            call_constructors = linker.base.add(addr_arm64); 
         } else if (Process.arch == "ia32") {
             call_constructors = linker.base.add(addr_ia32); 
         } else if (Process.arch == "x64") {
             console.log("libraryOnLoad: TODO on x64's linker");
-            return;
-        } else {
-            console.log("libraryOnLoad: arch error");
             return;
         }
         Interceptor.attach(call_constructors, {
@@ -335,7 +429,7 @@ function libraryOnLoad(libname, fn) {
                     let libfn = monitor_libs[i][1];
                     if(libname.indexOf(tohook) >= 0) {
                         let tid = Process.getCurrentThreadId();
-                        console.log(`[${tid}] ${libname}'s initproc catched.`);
+                        // console.log(`[${tid}] ${libname}'s initproc catched.`);
                         this.libfn = libfn;
                         libfn(0);
                     }
@@ -366,38 +460,101 @@ function showThreads() {
 }
 exports.showThreads = showThreads;
 
+function findElfSegment(moduleOrName, segName) {
+    let module = moduleOrName;
+    if(typeof(moduleOrName) === 'string') {
+        module = Process.findModuleByName(moduleOrName);
+    }
+    if(module) {
+        let SHT_offset;
+        let SHT_size_offset;
+        let SHT_count_offset;
+        let SHT_strtidx_offset;
+        let SHTH_addr_offset;
+        let SHTH_vaddr_offset;
+        let SHTH_nameidx_offset = 0;
+        let SHTH_size_offset;
+        if(Process.arch === "arm" || Process.arch === "ia32" ) {
+            SHT_offset = 0x20;
+            SHT_size_offset = 0x2e;
+            SHT_count_offset = 0x30;
+            SHT_strtidx_offset = 0x32;
+            
+            SHTH_vaddr_offset = 0x0c;
+            SHTH_addr_offset = 0x10;
+            SHTH_size_offset = 0x14;
+        } else if (Process.arch === "arm64" || Process.arch === "x64") {
+            SHT_offset = 0x28;
+            SHT_size_offset = 0x3a;
+            SHT_count_offset = 0x3c;
+            SHT_strtidx_offset = 0x3e;
+            
+            SHTH_vaddr_offset = 0x10;
+            SHTH_addr_offset = 0x18;
+            SHTH_size_offset = 0x20;
+        }
+        // const elf = new File(module.path, 'rb');
+        modulesApiProxy.c.fopen = ['pointer', ['string', 'string']];
+        modulesApiProxy.c.fseek = ['int', ['pointer', 'int', 'int']];
+        modulesApiProxy.c.ftell = ['int', ['pointer']];
+        modulesApiProxy.c.fread = ['uint', ['pointer', 'uint', 'uint', 'pointer']];
+        modulesApiProxy.c.malloc = ['pointer', ['uint']];
+        modulesApiProxy.c.free = ['int', ['pointer']];
+        modulesApiProxy.c.fclose = ['int', ['pointer']];
+        
+        const fd = modulesApiProxy.c.fopen(module.path, 'rb');
+        modulesApiProxy.c.fseek(fd, 0, 2);
+        const fsize = modulesApiProxy.c.ftell(fd);
+        const buffer = modulesApiProxy.c.malloc(fsize + 0x10);
+        modulesApiProxy.c.fseek(fd, 0, 0);
+        modulesApiProxy.c.fread(buffer, fsize, 1, fd);
+        modulesApiProxy.c.fclose(fd);
+        
+        const SHT = buffer.add(SHT_offset).readPointer();
+        const SHT_size = buffer.add(SHT_size_offset).readU16();
+        const SHT_count = buffer.add(SHT_count_offset).readU16();
+        const SHT_strtidx = buffer.add(SHT_strtidx_offset).readU16();
+        const SHT_strtblItem = buffer.add(SHT).add(SHT_strtidx*SHT_size);
+        const segNameTable = buffer.add(SHT_strtblItem.add(SHTH_addr_offset).readPointer());
+        for(let i = 0; i < SHT_count; ++i) {
+            let SHT_item = buffer.add(SHT).add(i*SHT_size);
+            let curSegAddr = SHT_item.add(SHTH_vaddr_offset).readPointer();
+            let curSegSize = parseInt(SHT_item.add(SHTH_size_offset).readPointer().toString(10));
+            let segNamePtr = segNameTable.add(SHT_item.add(SHTH_nameidx_offset).readU16());
+            let curSegName = segNamePtr.readCString();
+            if(curSegName === segName) {
+                modulesApiProxy.c.free(buffer);
+                return {addr: module.base.add(curSegAddr), size: curSegSize};
+            }
+        }
+        modulesApiProxy.c.free(buffer);
+        return null;
+    }
+}
+exports.findElfSegment = findElfSegment;
+
 // for case gadget is globally injected,
 // sometimes it will suspend when use server at same time.
 function avoidConflict() {
+    let serverModule = null;
+    if(Process.arch === "arm") {
+        serverModule = Process.findModuleByName("frida-agent-32.so");
+    } else if (Process.arch === "arm64") {
+        serverModule = Process.findModuleByName("frida-agent-64.so");
+    }
+    
     function diableGadgets() {
-        if(Process.arch == "arm") {
-            // frida-gadget-12.8.0-android-arm.so
-            var m = Process.findModuleByName("libadirf.so");
-            // clean .init_array
-            // TODO: can be done by dyn find .init_array from elf header.
-            Memory.protect(m.base.add(0xDC0F04), 28,'rw-');
-            m.base.add(0xDC0F04).writePointer(easy_frida.nullcb);
-            m.base.add(0xDC0F08).writePointer(easy_frida.nullcb);
-            m.base.add(0xDC0F0C).writePointer(easy_frida.nullcb);
-            m.base.add(0xDC0F10).writePointer(easy_frida.nullcb);
-            m.base.add(0xDC0F14).writePointer(easy_frida.nullcb);
-            m.base.add(0xDC0F18).writePointer(easy_frida.nullcb);
-            m.base.add(0xDC0F1C).writePointer(easy_frida.nullcb);
-        } else if (Process.arch == "arm64") {
-            // frida-gadget-12.8.0-android-arm64.so
-            var m = Process.findModuleByName("libadirf.so");
-            // clean .init_array
-            Memory.protect(m.base.add(0x1277E80), 28,'rw-');
-            m.base.add(0x1277E80).writePointer(easy_frida.nullcb);
-            m.base.add(0x1277E84).writePointer(easy_frida.nullcb);
-            m.base.add(0x1277E88).writePointer(easy_frida.nullcb);
-            m.base.add(0x1277E8C).writePointer(easy_frida.nullcb);
-            m.base.add(0x1277E90).writePointer(easy_frida.nullcb);
-            m.base.add(0x1277E84).writePointer(easy_frida.nullcb);
-            m.base.add(0x1277E88).writePointer(easy_frida.nullcb);
+        const fridaGadget = Process.findModuleByName("libadirf.so");
+        const initseg = findElfSegment(fridaGadget, ".init_array");
+        Memory.protect(initseg.addr, initseg.size, 'rw-');
+        for(let offset = 0; offset < initseg.size; offset += Process.pointerSize) {
+            let fptr = initseg.addr.add(offset).readPointer();
+            if(fptr.isNull()) break;
+            initseg.addr.add(offset).writePointer(easy_frida.nullcb);
         }
     }
-    // lib which injected by lief's add_library or etc.
-    libraryOnLoad("libqti_performance.so", diableGadgets);
+    if(serverModule !== null) {
+        libraryOnLoad("libqti_performance.so", diableGadgets);
+    }
 }
 exports.avoidConflict = avoidConflict;

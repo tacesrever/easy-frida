@@ -82,4 +82,3 @@ function nullfunc() {
 exports.nullfunc = nullfunc;
 let nullcb = new NativeCallback(nullfunc, 'int', []);
 exports.nullcb = nullcb;
-

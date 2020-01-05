@@ -98,7 +98,7 @@ class EasyFrida {
         await this._setupDevice();
         await this.startServer();
         this._onLog(`spawning ${target}`);
-        let pid = await this.device.spawn(target).catch(async e => {
+        const pid = await this.device.spawn(target).catch(async e => {
             await this.restartServer();
             this.run(target, enableChildGating);
         });
@@ -108,10 +108,10 @@ class EasyFrida {
     async attach(target = this.target, enableChildGating) {
         await this._setupDevice();
         await this.startServer();
-        let session = await this.device.attach(target);
+        const session = await this.device.attach(target);
         console.log(`[+] attached to ${session.pid}.`);
         if(enableChildGating) session.enableChildGating();
-        let tproc = {session:null, script:null, onDetach:null};
+        const tproc = {session:null, script:null, onDetach:null};
         tproc.session = session;
         
         tproc.onDetach = async () => {
@@ -119,7 +119,7 @@ class EasyFrida {
             if(idx < 0) return;
             this._onLog(`[!] ${tproc.session.pid}'s session detached.`);
             this.procList.splice(idx, 1);
-            if(this.curProc == tproc && this.procList.length) {
+            if(this.curProc === tproc && this.procList.length) {
                 this.curProc = this.procList[0];
                 this._onLog(`[+] switched to ${this.curProc.session.pid}.`);
             } else {
@@ -144,22 +144,27 @@ class EasyFrida {
         await this.attach(target, enableChildGating).catch( async () => {
             await this.run(target, enableChildGating);
         });
-        this.load(file).catch( e => {console.log(e);});
+        this.load(file)
+            .catch( e => {console.log(e);})
+            .then( () => {this.resume();});
     }
     
-    resume() {
-        this.device.resume(this.curProc.session.pid).catch(()=>{});
+    resume(pid) {
+        if(pid === undefined) 
+            this.device.resume(this.curProc.session.pid).catch(()=>{});
+        else
+            this.device.resume(pid).catch(()=>{});
     }
     
     async watch(file = this.scriptfile, target = this.target, enableChildGating) {
         await this.inject(file, target, enableChildGating);
         let timer = null;
         fs.watch(file, async () => {
-            // avoid reload at script's local scope.
-            if(this.interactLabel == this.interactLabels.remoteLocal) {
-                while(this.interactLabel == this.interactLabels.remoteLocal) await sleep(1000);
+            // avoid reload when script's local eval loop running.
+            if(this.interactLabel === this.interactLabels.remoteLocal) {
+                while(this.interactLabel === this.interactLabels.remoteLocal) await sleep(1000);
             }
-            if(!timer)
+            if(timer === null)
                 timer = setTimeout(() => { this.reload(file); timer = null; }, 200);
         });
     }
@@ -167,8 +172,7 @@ class EasyFrida {
     async reload(file = this.scriptfile) {
         if(this.procList.length) {
             lock.acquire("reload", async () => {
-                let curpid = this.curProc.session.pid;
-                let detached = [];
+                const curpid = this.curProc.session.pid;
                 for(let i in this.procList) {
                     this.curProc = this.procList[i];
                     await this.load(file);
@@ -180,6 +184,12 @@ class EasyFrida {
                         break;
                     }
                 }
+                
+                if(this.procList.length !== 0) {
+                    this.interactLabel = this.interactLabels.remote;
+                    if(this.repl) this.repl.setPrompt(this.interactLabels);
+                }
+                
                 this._onLog("");
             });
         }
@@ -187,14 +197,14 @@ class EasyFrida {
     
     async load(file = this.scriptfile) {
         this.scriptfile = file;
-        let curProc = this.curProc;
+        const curProc = this.curProc;
         lock.acquire('compile', async () => {
             if(!compile(file)) throw "compile failed";
         });
         const source = fs.readFileSync(require.resolve("./_main.js"), "utf-8");
         
-        // let script = await curProc.session.createScript(source, {runtime: 'v8'});
-        let script = await curProc.session.createScript(source);
+        // const script = await curProc.session.createScript(source, {runtime: 'v8'});
+        const script = await curProc.session.createScript(source);
         script.logHandler = this._onConsoleMessage.bind(this);
         script.message.connect(this._onMessage.bind(this));
         // script.destroyed.connect();
@@ -439,8 +449,9 @@ class EasyFrida {
     
     connect() {
         // OSDEP
-        if(this.remoteAddr) {
+        if(this.location === 'usb' && this.remoteAddr) {
             child_process.execSync(`adb connect ${this.remoteAddr}`);
+            // sometimes first try will fail.
             child_process.execSync(`adb connect ${this.remoteAddr}`);
         }
     }
@@ -458,7 +469,7 @@ class EasyFrida {
     async _onChild(child) {
         await this.attach(child.pid);
         await this.load().catch( e => {console.log(e);});
-        await this.device.resume(child.pid).catch(()=>{});
+        this.resume(child.pid);
     }
     
     _onCrashed(crash) {
