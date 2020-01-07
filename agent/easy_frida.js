@@ -12,7 +12,7 @@ rpc.exports.exec = async function (code) {
                     try {
                         result = global_eval(code.substr(2));
                     } catch(e) {
-                        result = e;
+                        result = e.stack;
                     }
                     resolve(result);
                 });
@@ -21,7 +21,7 @@ rpc.exports.exec = async function (code) {
             try {
                 result = global_eval(code);
             } catch(e) {
-                result = e;
+                result = e.stack;
             }
             resolve(result);
         }
@@ -42,7 +42,7 @@ exports.interact = '\
         try {\
             result = eval(interactCode);\
         } catch(e) {\
-            result = e;\
+            result = e.stack;\
         }\
         send({"type":"scope", "act":"result", "result":result});\
     }\

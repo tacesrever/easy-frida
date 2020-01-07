@@ -4,6 +4,7 @@ const ef = require("./easy_frida.js");
 const na = require("./native.js");
 
 const apiFunctions = {
+    il2cpp_free: ['pointer', ['pointer']],
     il2cpp_domain_get: ['pointer', []],
     il2cpp_domain_get_assemblies: ['pointer', ['pointer', 'pointer']],
     il2cpp_assembly_get_image: ['pointer', ['pointer']],
@@ -38,6 +39,9 @@ const apiFunctions = {
     il2cpp_method_get_param_count: ['int', ['pointer']],
     il2cpp_method_get_flags: ['int', ['pointer', 'pointer']],
     il2cpp_method_get_class: ['pointer', ['pointer']],
+    il2cpp_method_get_return_type: ['pointer', ['pointer']],
+    il2cpp_method_get_param: ['pointer', ['pointer', 'int']],
+    il2cpp_method_get_param_name: ['pointer', ['pointer', 'int']],
     
     il2cpp_type_get_name: ['pointer', ['pointer']],
     il2cpp_type_get_object: ['pointer', ['pointer']],
@@ -50,15 +54,12 @@ const apiFunctions = {
     il2cpp_get_exception_argument_null: ['pointer', ['pointer']],
     il2cpp_object_new: ['pointer', ['pointer']],
 }
-
 function getApi() {
     if (cachedApi !== null) {
         return cachedApi;
     }
-    
     const tempApi = {};
-    const libil2cpp = Process.findModuleByName("libil2cpp.so");
-    // exports.module = libil2cpp;
+    let libil2cpp = Process.findModuleByName("libil2cpp.so");
     if(libil2cpp) {
         for(let name in apiFunctions) {
             const address = libil2cpp.findExportByName(name);
@@ -250,22 +251,60 @@ function fromClass(clz) {
         let method = api.il2cpp_class_get_methods(curclz, tmpPtr);
         while(!method.isNull()) {
             const name = api.il2cpp_method_get_name(method).readCString();
+            let kname = name;
+            if(self.hasOwnProperty(kname)) {
+                const argcount = api.il2cpp_method_get_param_count(method);
+                kname += `_${argcount}`;
+            }
             // if(isStaticMethod(method) && !methods.hasOwnProperty(name)) {
-            if(!self.hasOwnProperty(name)) {
+            if(!self.hasOwnProperty(kname)) {
                 let curmethod = method;
-                Object.defineProperty(self, name, {
+                Object.defineProperty(self, kname, {
                     get: function () {
-                        if(cachedMethods[name] === undefined) {
+                        if(cachedMethods[kname] === undefined) {
                             const wrapper = {};
                             wrapper.name = name;
                             wrapper.clz = clz;
-                            cachedMethods[name] = invokeWrapper.bind(wrapper);
-                            Object.defineProperty(cachedMethods[name], "ptr", {
+                            cachedMethods[kname] = invokeWrapper.bind(wrapper);
+                            Object.defineProperty(cachedMethods[kname], "ptr", {
                                 value: curmethod.readPointer()
+                            });
+                            Object.defineProperty(cachedMethods[kname], "info", {
+                                get: function() {
+                                    if(wrapper.info === undefined) {
+                                        const info = {};
+                                        // const lib = Process.findModuleByName("libil2cpp.so");
+                                        info.offset = cachedMethods[kname].ptr.sub(lib.base);
+                                        info.fullname = `${self.$namespace}.${self.$className}.${name}`;
+                                        let type = api.il2cpp_method_get_return_type(curmethod);
+                                        let buffer = api.il2cpp_type_get_name(type);
+                                        info.type = buffer.readCString();
+                                        info.type += ` ${name}(`;
+                                        api.il2cpp_free(buffer);
+                                        const argcount = api.il2cpp_method_get_param_count(curmethod);
+                                        for(let i = 0; i < argcount; ++i) {
+                                            type = api.il2cpp_method_get_param(curmethod, i);
+                                            buffer = api.il2cpp_type_get_name(type);
+                                            info.type += buffer.readCString() + " ";
+                                            info.type += api.il2cpp_method_get_param_name(curmethod, i).readCString();
+                                            if(i !== argcount - 1) {
+                                                info.type += ", ";
+                                            }
+                                            api.il2cpp_free(buffer);
+                                        }
+                                        info.type += ");";
+                                        
+                                        wrapper.info = info;
+                                    }
+                                    return wrapper.info;
+                                },
+                                set: function(value) {
+                                    
+                                }
                             });
                         }
                         
-                        return cachedMethods[name];
+                        return cachedMethods[kname];
                     },
                     set: function (newFunc) {
                         
@@ -387,7 +426,7 @@ function fromFullname(fullname) {
 
 function perform(fn) {
     const api = getApi();
-    if(api === null) { 
+    if(api === null) {
         let attached = false;
         na.libraryOnLoad("libil2cpp.so", function(inited) {
             if(inited && !attached) {
@@ -402,7 +441,6 @@ function perform(fn) {
                 });
                 Interceptor.flush();
             }
-            
         });
     }
     else {

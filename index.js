@@ -216,7 +216,7 @@ class EasyFrida {
         }
         
         this.curProc.script = script;
-        script.load();
+        await script.load();
     }
     
     async interact(finallyKill = false) {
@@ -224,8 +224,19 @@ class EasyFrida {
         this.forceLocalEval = false;
         process.on('SIGINT', () => {});
         
+        const logCallback = ((e, msg) => {
+            if(e)
+                this._onLog(e.stack);
+            if(msg)
+                this._onLog(msg);
+        }).bind(this);
+        
         async function _ieval(code, context, filename, callback) {
-            this._interactCallback = callback;
+            let usedCallback = callback;
+            if(callback.name !== 'replCallback') {
+                usedCallback = logCallback;
+            }
+            this._interactCallback = usedCallback;
             code = code.trim();
             if(code == "") {
                 this._onLog("");
@@ -234,11 +245,11 @@ class EasyFrida {
             try {
                 // TODO: list and switch sessions in this.procList.
                 if(this.forceLocalEval) {
-                    callback(null, eval(code));
+                    usedCallback(null, eval(code));
                     return;
                 }
                 if(code[0] == '!') {
-                    callback(null, eval(code.substr(1)));
+                    usedCallback(null, eval(code.substr(1)));
                     return;
                 }
                 
@@ -247,10 +258,10 @@ class EasyFrida {
                         await this.post({"type":"scope", "code":code});
                         break;
                     case this.interactLabels.remote:
-                        callback(null, await this.reval(code));
+                        usedCallback(null, await this.reval(code));
                         break;
                     case this.interactLabels.local:
-                        callback(null, eval(code));
+                        usedCallback(null, eval(code));
                         break;
                 }
             }
@@ -258,7 +269,7 @@ class EasyFrida {
                 if (e.name == 'SyntaxError' && /^(Unexpected end of input|Unexpected token)/.test(e.message)) {
                     return callback(new repl.Recoverable(e));
                 }
-                callback(null, e); 
+                usedCallback(e); 
             }
         }
         
@@ -319,20 +330,22 @@ class EasyFrida {
                     return;
                 }
                 const evalExpr = buildGetKeysCode(expr);
-                ieval(evalExpr, null, null, (e, names) => {
-                    try {
+                
+                function replCallback(e, names) {
+                    if(names instanceof Array)
                         mGroups.push(names);
-                        if (mGroups.length) {
-                            for (let i = 0; i < mGroups.length; i++) {
-                                groups.push(mGroups[i].map( member => `${expr}.${member}`));
-                            }
-                            if (filter) {
-                                filter = `${expr}.${filter}`;
-                            }
+                    if (mGroups.length) {
+                        for (let i = 0; i < mGroups.length; i++) {
+                            groups.push(mGroups[i].map( member => `${expr}.${member}`));
                         }
-                    } catch {}
+                        if (filter) {
+                            filter = `${expr}.${filter}`;
+                        }
+                    }
                     groupsLoaded();
-                });
+                }
+                
+                ieval(evalExpr, null, null, replCallback);
                 return;
             }
             groupsLoaded();
@@ -341,9 +354,11 @@ class EasyFrida {
                 if (groups.length && filter) {
                     const newGroups = [];
                     for (let i = 0; i < groups.length; i++) {
-                        group = groups[i].filter((elem) => elem.indexOf(filter) === 0);
-                        if (group.length) {
-                            newGroups.push(group);
+                        if(groups[i] instanceof Array) {
+                            group = groups[i].filter((elem) => elem.indexOf(filter) === 0);
+                            if (group.length) {
+                                newGroups.push(group);
+                            }
                         }
                     }
                     groups = newGroups;
@@ -387,6 +402,8 @@ class EasyFrida {
             ignoreUndefined: true,
             eval:ieval
         });
+        
+        this.repl.setupHistory(".easy_frida_history", (e, r) => {});
         
         let localCompleter = this.repl.completer;
         this.repl.completer = (line, callback) => {

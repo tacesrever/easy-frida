@@ -111,12 +111,24 @@ const modulesApiProxy = new Proxy(modulesApi, {
                     get: function() {
                         return functionWrapper.wrapper;
                     },
-                    set: function(signature) {
-                        // TODO: replace / attach
-                        functionWrapper.signature = {
-                            retType: signature[0],
-                            argList: signature[1],
-                            options: signature.length === 3 ? signature[2] : undefined
+                    set: function(value) {
+                        if(value instanceof Array) {
+                            functionWrapper.signature = {
+                                retType: value[0],
+                                argList: value[1],
+                                options: value.length === 3 ? value[2] : undefined
+                            }
+                        }
+                        else if(value instanceof Function) {
+                            if(functionWrapper.signature !== undefined) {
+                                const callback = new NativeCallback(value, functionWrapper.signature.retType, functionWrapper.signature.argList);
+                                Interceptor.replace(functionWrapper.ptr, callback);
+                            }
+                            else
+                                console.log(`[E] signature for function ${functionWrapper.name} hasn't defined.`);
+                        }
+                        else if(value.onEnter !== undefined || value.onLeave !== undefined) {
+                            Interceptor.attach(functionWrapper.ptr, value);
                         }
                     }
                 });
