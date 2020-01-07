@@ -8,6 +8,7 @@ const apiFunctions = {
     il2cpp_domain_get_assemblies: ['pointer', ['pointer', 'pointer']],
     il2cpp_assembly_get_image: ['pointer', ['pointer']],
     il2cpp_image_get_name: ['pointer', ['pointer']],
+    il2cpp_string_new: ['pointer', ['pointer']],
     
     il2cpp_object_get_class: ['pointer', ['pointer']],
     il2cpp_class_from_name: ['pointer', ['pointer', 'pointer', 'pointer']],
@@ -20,6 +21,7 @@ const apiFunctions = {
     il2cpp_class_get_methods: ['pointer', ['pointer', 'pointer']], 
     il2cpp_class_is_valuetype: ['bool', ['pointer']], 
     il2cpp_class_value_size: ['int', ['pointer', 'pointer']], 
+    il2cpp_class_get_method_from_name: ['pointer', ['pointer', 'pointer', 'int']],
     
     il2cpp_field_get_name: ['pointer', ['pointer']],
     il2cpp_field_get_offset: ['int', ['pointer']],
@@ -43,15 +45,10 @@ const apiFunctions = {
     il2cpp_runtime_object_init: ['void', ['pointer']],
     il2cpp_runtime_invoke_convert_args: ['pointer', ['pointer', 'pointer', 'pointer', 'int', 'pointer']], 
     il2cpp_runtime_invoke: ['pointer', ['pointer', 'pointer', 'pointer', 'pointer']], 
-    
-    il2cpp_thread_attach: ['pointer', ['pointer']], 
-    il2cpp_thread_current: ['pointer', []], 
-    il2cpp_thread_detach: ['void', ['pointer']], 
-    il2cpp_thread_get_all_attached_threads: ['pointer', ['pointer']], 
-    il2cpp_current_thread_get_stack_depth: ['int', []], 
-    il2cpp_thread_get_stack_depth: ['int', ['pointer']], 
-    il2cpp_current_thread_get_frame_at: ['bool', ['int', 'pointer']], 
-    il2cpp_thread_get_frame_at: ['bool', ['pointer', 'int', 'pointer']],
+    il2cpp_format_exception: ['pointer', ['pointer', 'pointer', 'int']], 
+    il2cpp_format_stack_trace: ['pointer', ['pointer', 'pointer', 'int']], 
+    il2cpp_get_exception_argument_null: ['pointer', ['pointer']],
+    il2cpp_object_new: ['pointer', ['pointer']],
 }
 
 function getApi() {
@@ -61,6 +58,7 @@ function getApi() {
     
     const tempApi = {};
     const libil2cpp = Process.findModuleByName("libil2cpp.so");
+    // exports.module = libil2cpp;
     if(libil2cpp) {
         for(let name in apiFunctions) {
             const address = libil2cpp.findExportByName(name);
@@ -152,20 +150,58 @@ function isStaticMethod(method) {
     return false;
 }
 
+const il2CppException = Memory.alloc(Process.pointerSize);
+const exceptionMessage = Memory.alloc(0x1000);
+const exceptionStack = Memory.alloc(0x4000);
+function invokeWrapper() {
+    let instance = arguments[0];
+    const argcount = arguments.length - 1;
+    if(instance.$handle !== undefined)
+        instance = instance.$handle;
+    else
+        instance = ptr(instance);
+    
+    if(this.methodinfo === undefined) {
+        this.methodinfo = cachedApi.il2cpp_class_get_method_from_name(
+            this.clz, Memory.allocUtf8String(this.name), argcount);
+        if(argcount !== 0)
+            this.params = Memory.alloc(Process.pointerSize * argcount);
+        else
+            this.params = ptr(0);
+    }
+    
+    for(let i = 0; i < argcount; ++i) {
+        if(arguments[i+1].$handle !== undefined)
+            this.params.add(Process.pointerSize*i).writePointer(arguments[i+1].$handle);
+        else
+            this.params.add(Process.pointerSize*i).writePointer(ptr(arguments[i+1]));
+    }
+    let result = cachedApi.il2cpp_runtime_invoke(this.methodinfo, instance, this.params, il2CppException);
+    let exception = il2CppException.readPointer();
+    if(exception.isNull()) {
+        return fromObject(result);
+    }
+    console.log(this.name, "exception:");
+    cachedApi.il2cpp_format_exception(exception, exceptionMessage, 0x1000);
+    cachedApi.il2cpp_format_stack_trace(exception, exceptionStack, 0x4000);
+    console.log(exceptionMessage.readCString());
+    console.log(exceptionStack.readCString());
+    return result;
+}
 let cachedClass = {};
 function fromClass(clz) {
     const api = getApi();
     if(api === null) return;
+    clz = ptr(clz);
     
     const tmpPtr = Memory.alloc(Process.pointerSize);
     const self = {};
     let curclz = clz;
-    let cachedMethods = {};
+    const cachedMethods = {};
+    const cachedObjects = {};
     self.$classHandle = clz;
     self.$className = api.il2cpp_class_get_name(clz).readCString();
     self.$namespace = api.il2cpp_class_get_namespace(clz).readCString();
-    const methods = {};
-    self.$methods = methods;
     while(!curclz.isNull()) {
         tmpPtr.writePointer(ptr(0));
         let field = api.il2cpp_class_get_fields(curclz, tmpPtr);
@@ -175,17 +211,23 @@ function fromClass(clz) {
                 let curfield = field;
                 Object.defineProperty(self, name, {
                     get: function () {
-                        const fieldType = api.il2cpp_field_get_type(curfield);
-                        const fieldClz = api.il2cpp_class_from_type(fieldType);
-                        const valueSize = api.il2cpp_class_value_size(fieldClz, ptr(0));
-                        const valuePtr = Memory.alloc(valueSize);
-                        api.il2cpp_field_static_get_value(curfield, valuePtr);
-                        if(!api.il2cpp_class_is_valuetype(fieldClz)) {
-                            const valueHandle = valuePtr.readPointer();
-                            return fromObject(valueHandle);
+                        if(cachedObjects[name] === undefined) {
+                            const fieldType = api.il2cpp_field_get_type(curfield);
+                            const fieldClz = api.il2cpp_class_from_type(fieldType);
+                            const valueSize = api.il2cpp_class_value_size(fieldClz, ptr(0));
+                            const valuePtr = Memory.alloc(valueSize);
+                            api.il2cpp_field_static_get_value(curfield, valuePtr);
+                            if(!api.il2cpp_class_is_valuetype(fieldClz)) {
+                                const valueHandle = valuePtr.readPointer();
+                                cachedObjects[name] = fromObject(valueHandle);
+                            }
+                            else if(valueSize <= Process.pointerSize) {
+                                cachedObjects[name] = valuePtr.readPointer();
+                            } 
+                            else 
+                                cachedObjects[name] = valuePtr;
                         }
-                        if(valueSize <= Process.pointerSize) return valuePtr.readPointer();
-                        return valuePtr;
+                        return cachedObjects[name];
                     },
                     set: function (value) {
                         const fieldType = api.il2cpp_field_get_type(curfield);
@@ -209,12 +251,18 @@ function fromClass(clz) {
         while(!method.isNull()) {
             const name = api.il2cpp_method_get_name(method).readCString();
             // if(isStaticMethod(method) && !methods.hasOwnProperty(name)) {
-            if(!methods.hasOwnProperty(name)) {
+            if(!self.hasOwnProperty(name)) {
                 let curmethod = method;
-                Object.defineProperty(methods, name, {
+                Object.defineProperty(self, name, {
                     get: function () {
                         if(cachedMethods[name] === undefined) {
-                            cachedMethods[name] = curmethod.readPointer();
+                            const wrapper = {};
+                            wrapper.name = name;
+                            wrapper.clz = clz;
+                            cachedMethods[name] = invokeWrapper.bind(wrapper);
+                            Object.defineProperty(cachedMethods[name], "ptr", {
+                                value: curmethod.readPointer()
+                            });
                         }
                         
                         return cachedMethods[name];
@@ -235,11 +283,11 @@ function fromObject(handle) {
     const api = getApi();
     if(api === null) return;
     if(handle.isNull()) return null;
+    if(typeof(handle) === 'number') handle = ptr(handle);
     const clz = api.il2cpp_object_get_class(handle);
     const self = fromClass(clz);
     let curclz = clz;
     let cachedMethods = {};
-    const methods = self.$methods;
     self.$handle = handle;
     const tmpPtr = Memory.alloc(Process.pointerSize);
     while(!curclz.isNull()) {
@@ -282,27 +330,6 @@ function fromObject(handle) {
             field = api.il2cpp_class_get_fields(curclz, tmpPtr);
         }
         
-        // tmpPtr.writePointer(ptr(0));
-        // let method = api.il2cpp_class_get_methods(curclz, tmpPtr);
-        // while(!method.isNull()) {
-            // const name = api.il2cpp_method_get_name(method).readCString();
-            // if(!isStaticMethod(method) && !methods.hasOwnProperty(name)) {
-                // let curmethod = method;
-                // Object.defineProperty(methods, name, {
-                    // get: function () {
-                        // if(cachedMethods[name] === undefined) {
-                            // cachedMethods[name] = curmethod.readPointer();
-                        // }
-                        
-                        // return cachedMethods[name];
-                    // },
-                    // set: function (newFunc) {
-                        
-                    // }
-                // });
-            // }
-            // method = api.il2cpp_class_get_methods(curclz, tmpPtr);
-        // }
         curclz = api.il2cpp_class_get_parent(curclz);
     }
     return self;
@@ -346,21 +373,21 @@ function fromFullname(fullname) {
     return result;
 }
 
-function findObjectByName(fullname) {
-    const api = getApi();
-    if(api === null) return;
+// function findObjectByName(fullname) {
+    // const api = getApi();
+    // if(api === null) return;
     
-    const clz = fromFullname(fullname);
-    if(clz === null) return null;
-    const type = api.il2cpp_class_get_type(clz);
-    const obj = api.il2cpp_type_get_object(type);
-    if(obj === null) return null;
-    return fromObject(obj);
-}
+    // const clz = fromFullname(fullname);
+    // if(clz === null) return null;
+    // const type = api.il2cpp_class_get_type(clz);
+    // const obj = api.il2cpp_type_get_object(type);
+    // if(obj === null) return null;
+    // return fromObject(obj);
+// }
 
 function perform(fn) {
     const api = getApi();
-    if(api === null) {
+    if(api === null) { 
         let attached = false;
         na.libraryOnLoad("libil2cpp.so", function(inited) {
             if(inited && !attached) {
@@ -394,7 +421,53 @@ function perform(fn) {
     // }
 // }
 
+function dump(addrfile, output) {
+    Module.load("/data/local/tmp/libparser.so");
+    na.modules.parser.init = ['pointer', ['string']];
+    na.modules.parser.dumpAll = ['pointer', ['string', 'string']];
+    
+    const parser_log = new NativeCallback(function() {
+        console.log(arguments[0].readCString());
+    }, 'void', ['pointer']);
+    
+    na.modules.parser.parser_log = parser_log;
+    
+    na.modules.parser.init(addrfile);
+    na.modules.parser.dumpAll(output+'.json', output+'.h');
+}
+
+function newString(s) {
+    const api = getApi();
+    if(api === null) return;
+    const sptr = Memory.allocUtf8String(s);
+    return api.il2cpp_string_new(sptr);
+}
+
+function readString(handle, maxlen) {
+    let strhandle;
+    if(handle.$handle !== undefined)
+        strhandle = handle.$handle;
+    else
+        strhandle = ptr(handle);
+    if(strhandle.isNull())
+        return '';
+    let length = strhandle.add(8).readInt();
+    if(maxlen && length > maxlen) {
+        return strhandle.add(0xc).readUtf16String(maxlen) + '...';
+    }
+    return strhandle.add(0xc).readUtf16String(length);
+}
+
+// function backtrace() {
+    // const api = getApi();
+    // if(api === null) return;
+    // let exception = api.il2cpp_get_exception_argument_null(ptr(0));
+    // api.il2cpp_format_stack_trace(exception, exceptionStack, 0x4000);
+    // console.log(exceptionStack.readCString());
+// }
+
 module.exports = {
+    dump,
     getApi,
     getDomain,
     enumerateImages,
@@ -402,6 +475,7 @@ module.exports = {
     fromObject,
     fromName,
     fromFullname,
-    findObjectByName,
-    perform
+    perform,
+    readString,
+    newString
 }
