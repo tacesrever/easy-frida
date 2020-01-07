@@ -321,19 +321,15 @@ class EasyFrida {
                     expr = bits.join('.');
                 }
                 const mGroups = [];
-                let javaenv = false;
-                if (!expr || expr === 'j:') {
-                    ieval(buildGetKeysCode("global"), null, null, (e, names) => {
-                        groups.push(names);
-                        groupsLoaded();
-                    });
-                    return;
-                }
-                const evalExpr = buildGetKeysCode(expr);
                 
                 function replCallback(e, names) {
                     if(names instanceof Array)
                         mGroups.push(names);
+                    if (!expr || expr === 'j:') {
+                        groups = mGroups;
+                        groupsLoaded();
+                        return;
+                    }
                     if (mGroups.length) {
                         for (let i = 0; i < mGroups.length; i++) {
                             groups.push(mGroups[i].map( member => `${expr}.${member}`));
@@ -344,9 +340,15 @@ class EasyFrida {
                     }
                     groupsLoaded();
                 }
-                
+                let javaenv = false;
+                if (!expr || expr === 'j:') {
+                    ieval(buildGetKeysCode("global"), null, null, replCallback);
+                    return;
+                }
+                const evalExpr = buildGetKeysCode(expr);
                 ieval(evalExpr, null, null, replCallback);
                 return;
+                
             }
             groupsLoaded();
             function groupsLoaded() {
@@ -388,7 +390,6 @@ class EasyFrida {
                 if (completions[0] === '') {
                     completions.shift();
                 }
-                
                 callback(null, [completions, completeOn]);
             }
         }

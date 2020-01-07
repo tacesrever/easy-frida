@@ -273,7 +273,7 @@ function fromClass(clz) {
                                 get: function() {
                                     if(wrapper.info === undefined) {
                                         const info = {};
-                                        // const lib = Process.findModuleByName("libil2cpp.so");
+                                        const lib = Process.findModuleByName("libil2cpp.so");
                                         info.offset = cachedMethods[kname].ptr.sub(lib.base);
                                         info.fullname = `${self.$namespace}.${self.$className}.${name}`;
                                         let type = api.il2cpp_method_get_return_type(curmethod);
