@@ -28,26 +28,29 @@ rpc.exports.exec = async function (code) {
     });
 }
 
+global.enableInteract = true;
 exports.interact = '\
-    var interactCode;\
-    var result;\
-    send({"type":"scope", "act":"enter"});\
-    console.log("[+] Enter local scope, input /q to exit.");\
-    while(true) {\
-        var codeRecv = recv("scope", function(message) {\
-            interactCode = message["code"];\
-        });\
-        codeRecv.wait();\
-        if(interactCode == "/q") break;\
-        try {\
-            result = eval(interactCode);\
-        } catch(e) {\
-            result = e.stack;\
+    if(enableInteract) {\
+        var interactCode;\
+        var result;\
+        send({"type":"scope", "act":"enter"});\
+        console.log("[+] Enter local scope, input /q to exit.");\
+        while(true) {\
+            var codeRecv = recv("scope", function(message) {\
+                interactCode = message["code"];\
+            });\
+            codeRecv.wait();\
+            if(interactCode == "/q") break;\
+            try {\
+                result = eval(interactCode);\
+            } catch(e) {\
+                result = e.stack;\
+            }\
+            send({"type":"scope", "act":"result", "result":result});\
         }\
-        send({"type":"scope", "act":"result", "result":result});\
+        send({"type":"scope", "act":"quit"});\
+        console.log("[+] Quit local scope.");\
     }\
-    send({"type":"scope", "act":"quit"});\
-    console.log("[+] Quit local scope.");\
 '
 
 function bufToArr(arrayBuffer) {

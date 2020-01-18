@@ -171,23 +171,35 @@ function invokeWrapper() {
             this.params = ptr(0);
     }
     
+    
     for(let i = 0; i < argcount; ++i) {
-        if(arguments[i+1].$handle !== undefined)
-            this.params.add(Process.pointerSize*i).writePointer(arguments[i+1].$handle);
+        let paramPtr = this.params.add(Process.pointerSize*i);
+        let param = arguments[i+1];
+        if(param.$handle !== undefined)
+            paramPtr.writePointer(param.$handle);
+        else if(typeof(param) === 'string') {
+            console.log(param);
+            paramPtr.writePointer(newString(param));
+        }
         else
-            this.params.add(Process.pointerSize*i).writePointer(ptr(arguments[i+1]));
+            paramPtr.writePointer(ptr(param));
     }
-    let result = cachedApi.il2cpp_runtime_invoke(this.methodinfo, instance, this.params, il2CppException);
-    let exception = il2CppException.readPointer();
-    if(exception.isNull()) {
-        return fromObject(result);
+    try {
+        let result = cachedApi.il2cpp_runtime_invoke(this.methodinfo, instance, this.params, il2CppException); 
+        let exception = il2CppException.readPointer();
+        if(exception.isNull()) {
+            return fromObject(result);
+        }
+        console.log(this.name, "exception:");
+        cachedApi.il2cpp_format_exception(exception, exceptionMessage, 0x1000);
+        cachedApi.il2cpp_format_stack_trace(exception, exceptionStack, 0x4000);
+        console.log(exceptionMessage.readCString());
+        console.log(exceptionStack.readCString());
+        return result;
+    } catch(e) {
+        console.log(e);
+        return null;
     }
-    console.log(this.name, "exception:");
-    cachedApi.il2cpp_format_exception(exception, exceptionMessage, 0x1000);
-    cachedApi.il2cpp_format_stack_trace(exception, exceptionStack, 0x4000);
-    console.log(exceptionMessage.readCString());
-    console.log(exceptionStack.readCString());
-    return result;
 }
 let cachedClass = {};
 function fromClass(clz) {
@@ -278,7 +290,11 @@ function fromClass(clz) {
                                         info.fullname = `${self.$namespace}.${self.$className}.${name}`;
                                         let type = api.il2cpp_method_get_return_type(curmethod);
                                         let buffer = api.il2cpp_type_get_name(type);
-                                        info.type = buffer.readCString();
+                                        if(isStaticMethod(curmethod))
+                                            info.type = "static ";
+                                        else
+                                            info.type = "";
+                                        info.type += buffer.readCString();
                                         info.type += ` ${name}(`;
                                         api.il2cpp_free(buffer);
                                         const argcount = api.il2cpp_method_get_param_count(curmethod);
@@ -321,8 +337,8 @@ function fromClass(clz) {
 function fromObject(handle) {
     const api = getApi();
     if(api === null) return;
-    if(handle.isNull()) return null;
     if(typeof(handle) === 'number') handle = ptr(handle);
+    if(handle.isNull()) return null;
     const clz = api.il2cpp_object_get_class(handle);
     const self = fromClass(clz);
     let curclz = clz;
@@ -444,7 +460,7 @@ function perform(fn) {
         });
     }
     else {
-        fn();
+        setImmediate(fn);
     }
 }
 // function getAllThreads() {
@@ -489,11 +505,11 @@ function readString(handle, maxlen) {
         strhandle = ptr(handle);
     if(strhandle.isNull())
         return '';
-    let length = strhandle.add(8).readInt();
+    let length = strhandle.add(2*Process.pointerSize).readInt();
     if(maxlen && length > maxlen) {
-        return strhandle.add(0xc).readUtf16String(maxlen) + '...';
+        return strhandle.add(2*Process.pointerSize+4).readUtf16String(maxlen) + '...';
     }
-    return strhandle.add(0xc).readUtf16String(length);
+    return strhandle.add(2*Process.pointerSize+4).readUtf16String(length);
 }
 
 // function backtrace() {

@@ -403,60 +403,6 @@ function traceFunction (liborAddr, funcName, retType, argList, hooks) {
 }
 exports.traceFunction = traceFunction;
 
-
-// fn(0) called before lib's init functions called,
-// fn(1) after.
-let monitor_libs = [];
-let linker = null;
-function libraryOnLoad(libname, fn) {
-    // __dl__ZN6soinfo17call_constructorsEv in /system/bin/linker | /system/bin/linker64
-    const addr_arm = 0x1A63D;
-    const addr_arm64 = 0x2FAC4;
-    const addr_ia32 = 0x2DE8;
-    
-    monitor_libs.push([libname, fn]);
-    let call_constructors;
-    if(linker == null) {
-        linker = Process.findModuleByName("linker");
-        if(Process.arch == "arm") {
-            call_constructors = linker.base.add(addr_arm); 
-        } else if (Process.arch == "arm64") {
-            call_constructors = linker.base.add(addr_arm64); 
-        } else if (Process.arch == "ia32") {
-            call_constructors = linker.base.add(addr_ia32); 
-        } else if (Process.arch == "x64") {
-            console.log("libraryOnLoad: TODO on x64's linker");
-            return;
-        }
-        Interceptor.attach(call_constructors, {
-            onEnter: function(args) {
-                let soinfo;
-                if(Process.arch == "ia32")
-                    soinfo = ptr(this.context.eax);
-                else
-                    soinfo = args[0];
-                let libname = soinfo.readCString();  
-                this.libfn = null;
-                for(let i in monitor_libs) {
-                    let tohook = monitor_libs[i][0];
-                    let libfn = monitor_libs[i][1];
-                    if(libname.indexOf(tohook) >= 0) {
-                        let tid = Process.getCurrentThreadId();
-                        // console.log(`[${tid}] ${libname}'s initproc catched.`);
-                        this.libfn = libfn;
-                        libfn(0);
-                    }
-                }
-            },
-            onLeave: function(ret) {
-                if(this.libfn) this.libfn(1);
-            }
-        });
-        Interceptor.flush();
-    }
-}
-exports.libraryOnLoad = libraryOnLoad;
-
 function showThreads() {
     let threads = Process.enumerateThreads();
     for(let idx in threads) {
@@ -545,22 +491,3 @@ function findElfSegment(moduleOrName, segName) {
     }
 }
 exports.findElfSegment = findElfSegment;
-
-// for case gadget is globally injected,
-// sometimes it will suspend when use server at same time.
-function avoidConflict() {
-    function diableGadgets() {
-        const fridaGadget = Process.findModuleByName("libadirf.so");
-        const initseg = findElfSegment(fridaGadget, ".init_array");
-        Memory.protect(initseg.addr, initseg.size, 'rw-');
-        for(let offset = 0; offset < initseg.size; offset += Process.pointerSize) {
-            let fptr = initseg.addr.add(offset).readPointer();
-            if(fptr.isNull()) break;
-            initseg.addr.add(offset).writePointer(easy_frida.nullcb);
-        }
-    }
-    if(easy_frida.isServer) {
-        libraryOnLoad("libqti_performance.so", diableGadgets);
-    }
-}
-exports.avoidConflict = avoidConflict;

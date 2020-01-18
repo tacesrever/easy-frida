@@ -233,7 +233,7 @@ class EasyFrida {
         
         async function _ieval(code, context, filename, callback) {
             let usedCallback = callback;
-            if(callback.name !== 'replCallback') {
+            if(callback.name === 'finish') {
                 usedCallback = logCallback;
             }
             this._interactCallback = usedCallback;
@@ -399,7 +399,6 @@ class EasyFrida {
         }
         this.repl = repl.start({
             prompt:this.interactLabel,
-            useColors: false,
             ignoreUndefined: true,
             eval:ieval
         });
@@ -499,16 +498,21 @@ class EasyFrida {
     }
     
     _onLog(message) {
-        if(message != "") {
-            message += "\n";
-        }
         if(this.logfile) {
-            fs.writeFileSync(this.logfile, message, { flag: 'a' });
+            if(typeof(message) === 'object') {
+                
+            }
+            else {
+                fs.writeFileSync(this.logfile, message.toString(), { flag: 'a' });
+            }
         }
         if(this.isInteract) {
-            message = `${this.interactLabels.clear}${message}${this.interactLabel}`;
+            process.stdout.write(this.interactLabels.clear);
         }
-        process.stdout.write(message);
+        console.log(message);
+        if(this.isInteract) {
+            process.stdout.write(this.interactLabel);
+        }
     }
     
     _onConsoleMessage(level, text) {

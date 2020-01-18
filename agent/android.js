@@ -1,4 +1,8 @@
 
+const easy_frida = require("./easy_frida.js");
+const na = require("./native.js");
+const fs = require("frida-fs");
+
 function real(obj) {
     if(Java.available && obj && obj.$className) {
         return Java.cast(obj, Java.use(obj.$className));
@@ -7,12 +11,139 @@ function real(obj) {
 }
 exports.real = real;
 
-function backtrace () { if(Java.available) {
-    const androidUtilLog = Java.use('android.util.Log');
-    const javaLangException = Java.use('java.lang.Exception');
-    log(androidUtilLog.getStackTraceString(javaLangException.$new()));
-}}
+let _dump_backtrace_to_file = null;
+// type: enum DebuggerdDumpType : uint8_t {
+    // kDebuggerdNativeBacktrace,
+    // kDebuggerdTombstone,
+    // kDebuggerdJavaBacktrace,
+    // kDebuggerdAnyIntercept
+// };
+function dump_backtrace_to_file(tid, type, outname) {
+    if(_dump_backtrace_to_file === null) {
+        let address = Module.findExportByName("libdebuggerd_client.so", "_Z22dump_backtrace_to_filei17DebuggerdDumpTypei");
+        if(address === null) return;
+        // tid, type, outfd
+        _dump_backtrace_to_file = new NativeFunction(address, 'int', ['uint', 'int', 'int']);
+        na.modules.c.open = ['int', ['string', 'int', 'int']];
+        na.modules.c.close = ['int', ['int']];
+    }
+    // O_CREAT | O_WRONLY, 0644
+    const fd = na.modules.c.open(outname, 65, 420);
+    _dump_backtrace_to_file(tid, type, fd);
+    na.modules.c.close(fd);
+}
+exports.dump_backtrace_to_file = dump_backtrace_to_file;
+
+function backtrace(tid) {
+    na.modules.c.unlink = ['void', ['string']];
+    if(tid === undefined) tid = Process.getCurrentThreadId();
+    const tmpBackTraceFileName = `/data/local/tmp/backtrace_${tid}`;
+    let type = 0;
+    dump_backtrace_to_file(tid, type, tmpBackTraceFileName);
+    let traceinfo;
+    try {
+        traceinfo = String(fs.readFileSync(tmpBackTraceFileName));
+    } catch {
+        na.modules.c.unlink(tmpBackTraceFileName);
+        return;
+    }
+    
+    if(type === 0) {
+        let tpos = traceinfo.indexOf(`sysTid=${tid}`);
+        let start = traceinfo.lastIndexOf("\n\n", tpos) + 2;
+        let end = traceinfo.indexOf("\n\n", tpos);
+        console.log(traceinfo.substr(start, end-start));
+    }
+    else if(type === 2) {
+        console.log(traceinfo);
+    }
+    na.modules.c.unlink(tmpBackTraceFileName);
+}
 exports.backtrace = backtrace;
+
+// fn(0) called before lib's init functions called,
+// fn(1) after.
+let monitor_libs = [];
+let linker = null;
+function libraryOnLoad(libname, fn) {
+    // __dl__ZN6soinfo17call_constructorsEv in /system/bin/linker | /system/bin/linker64
+    const addr_arm = 0x1A63D;
+    const addr_arm64 = 0x2FAC4;
+    const addr_ia32 = 0x2DE8;
+    let work_around_b_24465209;
+    
+    monitor_libs.push([libname, fn]);
+    let call_constructors;
+    if(linker == null) {
+        if(Process.arch == "arm") {
+            linker = Process.findModuleByName("linker");
+            call_constructors = linker.base.add(addr_arm);
+            work_around_b_24465209 = true;
+        } else if (Process.arch == "arm64") {
+            linker = Process.findModuleByName("linker64");
+            call_constructors = linker.base.add(addr_arm64);
+            work_around_b_24465209 = false;
+        } else if (Process.arch == "ia32") {
+            linker = Process.findModuleByName("linker");
+            call_constructors = linker.base.add(addr_ia32);
+            work_around_b_24465209 = true;
+        } else if (Process.arch == "x64") {
+            console.log("libraryOnLoad: TODO on x64's linker");
+            return;
+        }
+        Interceptor.attach(call_constructors, {
+            onEnter: function(args) {
+                let soinfo;
+                if(Process.arch == "ia32")
+                    soinfo = ptr(this.context.eax);
+                else
+                    soinfo = args[0];
+                let libname;
+                if(work_around_b_24465209) {
+                    libname = soinfo.readCString();
+                } else if(Process.arch == "arm64") {
+                    // link_map_head.l_name
+                    libname = soinfo.add(27*8).readPointer().readCString();
+                }
+                this.libfn = null;
+                for(let i in monitor_libs) {
+                    let tohook = monitor_libs[i][0];
+                    let libfn = monitor_libs[i][1];
+                    if(libname.indexOf(tohook) >= 0) {
+                        let tid = Process.getCurrentThreadId();
+                        console.log(`[${tid}] ${libname}'s initproc catched.`);
+                        this.libfn = libfn;
+                        libfn(0);
+                    }
+                }
+            },
+            onLeave: function(ret) {
+                if(this.libfn) this.libfn(1);
+            }
+        });
+        Interceptor.flush();
+    }
+}
+exports.libraryOnLoad = libraryOnLoad;
+
+// for case gadget is globally injected,
+// sometimes it will suspend when use server at same time.
+function avoidConflict() {
+    function diableGadgets() {
+        const fridaGadget = Process.findModuleByName("libadirf.so");
+        const initseg = na.findElfSegment(fridaGadget, ".init_array");
+        Memory.protect(initseg.addr, initseg.size, 'rw-');
+        for(let offset = 0; offset < initseg.size; offset += Process.pointerSize) {
+            let fptr = initseg.addr.add(offset).readPointer();
+            if(fptr.isNull()) break;
+            initseg.addr.add(offset).writePointer(easy_frida.nullcb);
+        }
+    }
+    if(easy_frida.isServer) {
+        libraryOnLoad("libqti_performance.so", diableGadgets);
+    }
+}
+exports.avoidConflict = avoidConflict;
 
 function forEachObj(clzinst, fn) {
     if(Java.available && clzinst && clzinst.$className) {
