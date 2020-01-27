@@ -34,30 +34,108 @@ function dump_backtrace_to_file(tid, type, outname) {
 }
 exports.dump_backtrace_to_file = dump_backtrace_to_file;
 
-function backtrace(tid) {
-    na.modules.c.unlink = ['void', ['string']];
-    if(tid === undefined) tid = Process.getCurrentThreadId();
-    const tmpBackTraceFileName = `/data/local/tmp/backtrace_${tid}`;
-    let type = 0;
-    dump_backtrace_to_file(tid, type, tmpBackTraceFileName);
-    let traceinfo;
-    try {
-        traceinfo = String(fs.readFileSync(tmpBackTraceFileName));
-    } catch {
-        na.modules.c.unlink(tmpBackTraceFileName);
-        return;
+// ref: cs.android.com
+// system/core/libunwindstack/include/unwindstack/Ucontext{arch}.h
+// system/core/libunwindstack/include/unwindstack/Machine{arch}.h
+// only setup regs.
+function toUContext(context) {
+    let padsize = 0;
+    let nregs = 0;
+    if(Process.arch === 'arm') {
+        padsize = 8*Process.pointerSize;
+        nregs = 16;
+    } else if(Process.arch === 'arm64') {
+        padsize = 6*Process.pointerSize + 128;
+        nregs = 32;
+    }
+    const result = Memory.alloc(padsize + nregs*Process.pointerSize);
+    let regsptr = result.add(padsize);
+    let i;
+    for(i = 0; i < nregs - 3; ++i) {
+        regsptr.add(i*Process.pointerSize).writePointer(context["r"+i]);
     }
     
-    if(type === 0) {
-        let tpos = traceinfo.indexOf(`sysTid=${tid}`);
-        let start = traceinfo.lastIndexOf("\n\n", tpos) + 2;
-        let end = traceinfo.indexOf("\n\n", tpos);
-        console.log(traceinfo.substr(start, end-start));
+    if(Process.arch === 'arm') {
+        regsptr.add((i+1)*Process.pointerSize).writePointer(context["sp"]);
+        regsptr.add((i)*Process.pointerSize).writePointer(context["lr"]);
+        regsptr.add((i+2)*Process.pointerSize).writePointer(context["pc"]);
     }
-    else if(type === 2) {
-        console.log(traceinfo);
+    else if(Process.arch === 'arm64') { // ??? wtf
+        regsptr.add(i*Process.pointerSize).writePointer(context["lr"]);
+        regsptr.add((i+1)*Process.pointerSize).writePointer(context["sp"]);
+        regsptr.add((i+2)*Process.pointerSize).writePointer(context["pc"]);
     }
-    na.modules.c.unlink(tmpBackTraceFileName);
+    return result;
+}
+
+let libBacktrace = null;
+let backtracers = {};
+const tmpStdString = Memory.alloc(0x20);
+function backtrace(tidOrContext) {
+    let tid, context;
+    if(libBacktrace === null) {
+        if(Process.findModuleByName("libbacktrace.so") === null) Module.load("libbacktrace.so");
+        if(Process.findModuleByName("libbacktrace.so") === null) {
+            console.log("libbacktrace not found");
+            return;
+        }
+        libBacktrace = na.modules.backtrace;
+        // Backtrace.Create
+        libBacktrace._ZN9Backtrace6CreateEiiP12BacktraceMap = ['pointer', ['int', 'int', 'pointer']];
+        // BacktraceCurrent.Unwind
+        libBacktrace._ZN16BacktraceCurrent6UnwindEjPv = ['bool', ['pointer', 'int', 'pointer']];
+        // Backtrace.FormatFrameData
+        libBacktrace._ZN9Backtrace15FormatFrameDataEj = ['pointer', ['pointer', 'pointer', 'int']];
+    }
+    if(tidOrContext === undefined) {
+        tid = Process.getCurrentThreadId();
+        context = ptr(0);
+    }
+    else if(typeof(tidOrContext) === "number") {
+        tid = tidOrContext;
+        context = ptr(0);
+    } else {
+        tid = Process.getCurrentThreadId();
+        try {
+            context = toUContext(tidOrContext);
+        }
+        catch(e) {
+            console.log(e);
+            context = ptr(0); 
+        }
+    }
+    if(backtracers[tid] === undefined) {
+        const BacktraceCreate = libBacktrace._ZN9Backtrace6CreateEiiP12BacktraceMap;
+        const Unwind = libBacktrace._ZN16BacktraceCurrent6UnwindEjPv;
+        const FormatFrameData = libBacktrace._ZN9Backtrace15FormatFrameDataEj;
+        const backtracer = BacktraceCreate(Process.id, tid, ptr(0));
+        
+        Object.defineProperty(backtracer, "Unwind", {
+            value: function(ctx) {
+                return Unwind(backtracer, 0, ctx);
+            }
+        });
+        Object.defineProperty(backtracer, "FormatFrameData", {
+            value: function(str, i) {
+                return FormatFrameData(str, backtracer, i);
+            }
+        });
+        backtracers[tid] = backtracer;
+    }
+    const threadBacktracer = backtracers[tid];
+    const ret = threadBacktracer.Unwind(context);
+    if(!ret) {
+        console.log("UnwindFromContext failed");
+        return;
+    }
+    let i = 0;
+    while(1) {
+        threadBacktracer.FormatFrameData(tmpStdString, i);
+        const frameMsg = na.readStdString(tmpStdString);
+        if(frameMsg === "") break;
+        console.log(frameMsg);
+        i += 1;
+    }
 }
 exports.backtrace = backtrace;
 

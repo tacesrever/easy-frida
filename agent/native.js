@@ -71,6 +71,7 @@ function apiCaller() {
     console.log(`[E] signature for function ${this.name} hasn't defined.`);
     return null;
 }
+// TODO: C++ signature auto parse
 const modulesApiProxy = new Proxy(modulesApi, {
     has(target, property) {
         return findModuleByName(property) !== null;
@@ -317,6 +318,16 @@ function stopAt(addr, name) {
 }
 exports.stopAt = stopAt;
 
+// https://codeshare.frida.re/@oleavr/read-std-string/
+function readStdString(str) {
+    const isTiny = (str.readU8() & 1) === 0;
+    if (isTiny) {
+    return str.add(1).readUtf8String();
+    }
+    return str.add(2 * Process.pointerSize).readPointer().readUtf8String();
+}
+exports.readStdString = readStdString;
+
 // traceFunction(null, 'open', 'i.fd', ['s.name']);
 // retType can be Array:
 // traceFunction(null, 'memcpy', [
@@ -326,11 +337,11 @@ exports.stopAt = stopAt;
 //      ], 
 //      ['p.dest', 'p.src', 'i.size']);
 function traceFunction (liborAddr, funcName, retType, argList, hooks) {
-    if(!hooks) hooks = {};
+    if(hooks === undefined) hooks = {};
     let funcAddr;
-    if(!liborAddr || typeof(liborAddr) == 'string') {
+    if(liborAddr === null || typeof(liborAddr) == 'string') {
         funcAddr = Module.findExportByName(liborAddr, funcName);
-        if(funcAddr == null) {
+        if(funcAddr === null) {
             console.log("[E] couldn't find function", funcName, "'s address in lib", liborAddr);
             return null;
         }
@@ -409,6 +420,7 @@ function showThreads() {
         let t = threads[idx];
         switch(Process.arch) {
             case 'arm':
+            case 'arm64':
                 console.log(`[${t.id}:${t.state}] pc:${symbolName(t.context.pc)}, lr:${symbolName(t.context.lr)}`);
                 break;
             case 'ia32':

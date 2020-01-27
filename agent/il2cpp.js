@@ -2,6 +2,7 @@
 let cachedApi = null;
 const ef = require("./easy_frida.js");
 const na = require("./native.js");
+const android = require("./android.js");
 
 const apiFunctions = {
     il2cpp_free: ['pointer', ['pointer']],
@@ -444,7 +445,7 @@ function perform(fn) {
     const api = getApi();
     if(api === null) {
         let attached = false;
-        na.libraryOnLoad("libil2cpp.so", function(inited) {
+        android.libraryOnLoad("libil2cpp.so", function(inited) {
             if(inited && !attached) {
                 attached = true;
                 const il2cpp_init = Module.getExportByName("libil2cpp.so", "il2cpp_init");
@@ -513,11 +514,7 @@ function readString(handle, maxlen) {
 }
 
 // function backtrace() {
-    // const api = getApi();
-    // if(api === null) return;
-    // let exception = api.il2cpp_get_exception_argument_null(ptr(0));
-    // api.il2cpp_format_stack_trace(exception, exceptionStack, 0x4000);
-    // console.log(exceptionStack.readCString());
+    // use android.backtrace and methodinfo
 // }
 
 module.exports = {

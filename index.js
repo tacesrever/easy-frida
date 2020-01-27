@@ -141,7 +141,8 @@ class EasyFrida {
     
     async inject(file = this.scriptfile, target = this.target, enableChildGating) {
         this.scriptfile = file;
-        await this.attach(target, enableChildGating).catch( async () => {
+        await this.attach(target, enableChildGating).catch( async (e) => {
+            console.log("attach Error:", e.message);
             await this.run(target, enableChildGating);
         });
         this.load(file)
@@ -450,10 +451,7 @@ class EasyFrida {
     // OSDEP
     async startServer() {
         if (this.location == 'usb') {
-            await this.device.getProcess(this.server).catch(async e => {
-                this._onLog("[+] starting server...");
-                adb_shell(`cd ${this.serverDir};nohup ${this.serverDir}${this.server} \\&`, 1).catch(()=>{});
-            });
+            await adb_shell(`cd ${this.serverDir};nohup ${this.serverDir}${this.server} \\&`, 1).catch(()=>{});
         }
     }
     
@@ -474,12 +472,7 @@ class EasyFrida {
     }
     
     async restartServer() {
-        await this.detach();
         await this.stopServer();
-        // OSDEP
-        await adb_shell("pkill -f zygote");
-        await sleep(10000);
-        this.connect();
         await this.startServer();
     }
     
