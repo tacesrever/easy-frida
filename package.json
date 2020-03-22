@@ -3,12 +3,16 @@
   "version": "1.0.0",
   "description": "",
   "main": "index.js",
-  "scripts": {
-    
-  },
+  "scripts": {},
   "author": "tacesrever",
   "dependencies": {
     "async-lock": "^1.2.2",
-    "frida": "^12.8.0"
+    "frida": "^12.8.14"
+  },
+  "bin": {
+    "create-injector": "./create-injector.js"
+  },
+  "devDependencies": {
+    "@types/node": "^13.9.2"
   }
 }

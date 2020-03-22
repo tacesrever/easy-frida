@@ -1,16 +1,14 @@
 
 const fs = require('fs');
 const path = require('path');
-const util = require('util');
 const repl = require('repl');
 const crypto = require('crypto');
 const process = require('process');
-const readline = require('readline');
 const child_process = require('child_process');
 
 const AsyncLock = require('async-lock');
 const frida = require('frida');
-// OSDEP
+
 const shell_tools = require("./shell_tools.js");
 const adb_shell = shell_tools.adb_shell;
 const adb_push = shell_tools.adb_push;
@@ -25,11 +23,18 @@ function md5(file) {
     return hash.digest('hex');
 }
 
-async function sleep(ms) {
+function sleep(ms) {
 	return new Promise(resolve => setTimeout(resolve, ms));
 }
 
 function compile(fileName) {
+    let tmpname = path.extname(fileName);
+    if(!['.js', '.ts'].includes(name)) {
+        console.log("not support ext:", tmpname);
+        return false;
+    }
+    tmpname = 'main' + tmpname;
+    
     let hash = md5(fileName);
     let lasthash;
     try {
@@ -40,10 +45,12 @@ function compile(fileName) {
     if(hash == lasthash) {
         return true;
     }
+
+    fs.copyFileSync(fileName, path.join(agentDir, tmpname));
+    let compileCmd = `frida-compile ${tmpname} -o ../_main.js`;
     console.log("\ncompiling script...");
-    fs.copyFileSync(fileName, path.join(agentDir, "main.js"));
     try {
-        child_process.execSync("npm run build", {cwd: agentDir});
+        child_process.execSync(compileCmd, {cwd: agentDir});
     } catch(e) {
         console.log(e);
         return false;
@@ -68,7 +75,7 @@ class EasyFrida {
         this.repl = null;
         this.interactLabels = {
             clear:          "\r                         \r",
-            local:          "local nodejs > ",
+            local:          "local > ",
             remote:         "remote (global) > ",
             remoteLocal:    "remote (localenv) > "
         }
@@ -86,7 +93,6 @@ class EasyFrida {
                 break;
         }
         
-        // OSDEP
         switch(targetOs) {
             case 'android':
                 this.serverDir = '/data/local/tmp/';
@@ -108,13 +114,24 @@ class EasyFrida {
     async attach(target = this.target, enableChildGating) {
         await this._setupDevice();
         await this.startServer();
-        const session = await this.device.attach(target);
+        let session;
+        await this.device.attach(target).then(sess => {
+            session = sess;
+        }).catch(async e => {
+            if(e.message.indexOf('Ambiguous name') >= 0) {
+                console.log(e.message);
+                console.log("choose first one.");
+                const pid = e.message.match(/pid\: (\d+)/)[1];
+                session =  await this.device.attach(parseInt(pid));
+            }
+            else throw e;
+        });
         console.log(`[+] attached to ${session.pid}.`);
         if(enableChildGating) session.enableChildGating();
         const tproc = {session:null, script:null, onDetach:null};
         tproc.session = session;
         
-        tproc.onDetach = async () => {
+        tproc.onDetach = () => {
             let idx = this.procList.indexOf(tproc);
             if(idx < 0) return;
             this._onLog(`[!] ${tproc.session.pid}'s session detached.`);
@@ -226,9 +243,9 @@ class EasyFrida {
         process.on('SIGINT', () => {});
         
         const logCallback = ((e, msg) => {
-            if(e)
+            if(e !== null)
                 this._onLog(e.stack);
-            if(msg)
+            if(msg !== undefined)
                 this._onLog(msg);
         }).bind(this);
         
@@ -249,7 +266,7 @@ class EasyFrida {
                     usedCallback(null, eval(code));
                     return;
                 }
-                if(code[0] == '!') {
+                if(code[0] === '!') {
                     usedCallback(null, eval(code.substr(1)));
                     return;
                 }
@@ -395,7 +412,7 @@ class EasyFrida {
             }
         }
         
-        if(this.interactLabel != this.interactLabels.local) {
+        if(this.interactLabel !== this.interactLabels.local) {
             this._onLog("[+] enter remote env. use `!code` to eval code at local.");
         }
         this.repl = repl.start({
@@ -442,16 +459,16 @@ class EasyFrida {
     }
     
     async _setupDevice() {
-        if(!this.device) {
+        if(this.device === null) {
             this.device = await this.getDevice({ timeout: null });
+            this.device.childAdded.connect(this._onChild);
+            this.device.processCrashed.connect(this._onCrashed);
         }
-        this.device.childAdded.connect(this._onChild);
-        this.device.processCrashed.connect(this._onCrashed);
     }
-    // OSDEP
+    
     async startServer() {
         if (this.location == 'usb') {
-            await adb_shell(`cd ${this.serverDir};nohup ${this.serverDir}${this.server} \\&`, 1).catch(()=>{});
+            await adb_shell(`${this.serverDir}${this.server} -D`, 1).catch(()=>{});
         }
     }
     
@@ -602,8 +619,6 @@ class EasyFrida {
     async reval(code) {
         return this.curProc.script.exports.exec(code);
     }
-    
-    
 }
 
 module.exports = EasyFrida;

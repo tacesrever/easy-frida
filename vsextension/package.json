@@ -1,0 +1,38 @@
+{
+	"name": "easy-frida",
+	"displayName": "",
+	"description": "Autocomplete extension for frida",
+	"version": "0.0.1",
+	"publisher": "tacesrever",
+	"repository": "",
+	"engines": {
+		"vscode": "^1.43.0"
+	},
+	"categories": [
+		"Other"
+	],
+	"activationEvents": [
+		"*"
+	],
+	"main": "./out/extension.js",
+	"contributes": {
+		"commands": [
+			{
+				"command": "extension.helloWorld",
+				"title": "Hello World"
+			}
+		]
+	},
+	"scripts": {
+		"vscode:prepublish": "npm run compile",
+		"compile": "tsc -p ./",
+		"lint": "tslint -p ./",
+		"watch": "tsc -watch -p ./"
+	},
+	"devDependencies": {
+		"@types/node": "^13.9.2",
+		"@types/vscode": "^1.43.0",
+		"tslint": "^6.1.0",
+		"typescript": "^3.8.3"
+	}
+}

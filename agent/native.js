@@ -1,53 +1,49 @@
-
-const easy_frida = require("./easy_frida.js");
+'use strict';
+const easy_frida = require("./easy_frida");
 
 function backtrace( context ) {
-    let bt = Thread.backtrace(context, Backtracer.ACCURATE)
-        .map(symbolName).join("\n\t");
+    let bt = Thread.backtrace(context, Backtracer.ACCURATE).map(symbolName).join("\n\t");
     console.log('\t' + bt);
 }
 exports.backtrace = backtrace;
 
-function hdump(addr, n) {
+function d(addr, n) {
     if(n) {
         console.log(hexdump(ptr(addr), {length:n}));
     } else {
         console.log(hexdump(ptr(addr)));
     }
 }
-exports.hdump = hdump;
+exports.d = d;
 
-//warpper for NativeFunction, add 'string' type.
-function makefunction(liborAddr, name, retType, argList, options) {
-    let faddr, argType = [], nativef;
+function makefunction(libnameOrAddr, name, retType, argTypes, abiOrOptions) {
+    let funcAddress, realArgTypes = [], nativeFunction;
+      
+    if (libnameOrAddr === null || typeof libnameOrAddr === 'string') {
+        funcAddress = Module.findExportByName(libnameOrAddr, name);
+        if(funcAddress === null) {
+            console.log("[E] makefunction failed to find faddr for", name);
+            return null;
+        }
+    } else funcAddress = libnameOrAddr;
     
-    if (liborAddr == null || typeof liborAddr == 'string') {
-        faddr = Module.findExportByName(liborAddr, name);
-    } else faddr = ptr(liborAddr);
+    argTypes.forEach(type => {
+        if(type === 'string') realArgTypes.push('pointer');
+        else realArgTypes.push(type);
+    });
     
-    if(!faddr) {
-        console.log("[+] makefunction failed to find faddr for", name);
-        return null;
-    }
-    
-    for(let i in argList) {
-        if(argList[i] == 'string') argType.push('pointer');
-        else argType.push(argList[i]);
-    }
-    
-    if(retType == 'string') nativef = new NativeFunction(faddr, 'pointer', argType, options);
-    else nativef = new NativeFunction(faddr, retType, argType, options);
-    
+    if(retType === 'string') nativeFunction = new NativeFunction(funcAddress, 'pointer', realArgTypes, abiOrOptions);
+    else nativeFunction = new NativeFunction(funcAddress, retType, realArgTypes, abiOrOptions);
+
     return function() {
         let args = [];
         for(let i in arguments) {
-            if(argList[i] == 'string' && typeof arguments[i] == 'string') {
+            if(argTypes[i] === 'string' && typeof arguments[i] === 'string') {
                 args.push(Memory.allocUtf8String(arguments[i]));
-            }
-            else args.push(arguments[i]);
+            } else args.push(arguments[i]);
         }
-        let retVal = nativef(...args);
-        if(retType == 'string') {
+        let retVal = nativeFunction(...args);
+        if(retType === 'string') {
             retVal = retVal.readCString();
         }
         return retVal;
@@ -55,122 +51,9 @@ function makefunction(liborAddr, name, retType, argList, options) {
 }
 exports.makefunction = makefunction;
 
-const modulesApi = {};
-function apiCaller() {
-    if(this.nativeFunction) {
-        return this.nativeFunction.apply(this.nativeFunction, arguments);
-    }
-    if(this.signature !== undefined) {
-        this.nativeFunction = makefunction(
-            this.ptr, '',
-            this.signature.retType, 
-            this.signature.argList, 
-            this.signature.options);
-        return this.nativeFunction.apply(this.nativeFunction, arguments);
-    }
-    console.log(`[E] signature for function ${this.name} hasn't defined.`);
-    return null;
-}
-// TODO: C++ signature auto parse
-const modulesApiProxy = new Proxy(modulesApi, {
-    has(target, property) {
-        return findModuleByName(property) !== null;
-    },
-    get(target, property) {
-        if(property in target) {
-            return target[property];
-        }
-        const module = findModuleByName(property);
-        if(module === null) return;
-        
-        const wrapper = {};
-        wrapper.$module = module;
-        module.enumerateExports().forEach(function (exp) {
-            if(exp.name in wrapper) {
-                // console.log(exp.type, exp.name, exp.address);
-                return;
-            }
-            if(exp.type === 'function') {
-                const functionWrapper = {};
-                functionWrapper.ptr = exp.address;
-                functionWrapper.name = exp.name;
-                functionWrapper.wrapper = apiCaller.bind(functionWrapper);
-                functionWrapper.wrapper.ptr = exp.address;
-                Object.defineProperty(functionWrapper.wrapper, 'signature', {
-                    get: function() {
-                       return functionWrapper.signature;
-                    },
-                    set: function(signature) {
-                        functionWrapper.signature = {
-                            retType: signature[0],
-                            argList: signature[1],
-                            options: signature.length === 3 ? signature[2] : undefined
-                        }
-                    }
-                });
-                Object.defineProperty(wrapper, exp.name, {
-                    get: function() {
-                        return functionWrapper.wrapper;
-                    },
-                    set: function(value) {
-                        if(value instanceof Array) {
-                            functionWrapper.signature = {
-                                retType: value[0],
-                                argList: value[1],
-                                options: value.length === 3 ? value[2] : undefined
-                            }
-                        }
-                        else if(value instanceof Function) {
-                            if(functionWrapper.signature !== undefined) {
-                                const callback = new NativeCallback(value, functionWrapper.signature.retType, functionWrapper.signature.argList);
-                                Interceptor.replace(functionWrapper.ptr, callback);
-                            }
-                            else
-                                console.log(`[E] signature for function ${functionWrapper.name} hasn't defined.`);
-                        }
-                        else if(value.onEnter !== undefined || value.onLeave !== undefined) {
-                            Interceptor.attach(functionWrapper.ptr, value);
-                        }
-                    }
-                });
-            }
-            else if(exp.type === 'variable') {
-                Object.defineProperty(wrapper, exp.name, {
-                    get: function() {
-                        return exp.address;
-                    },
-                    set: function(value) {
-                        if(typeof(value) === 'number' || value instanceof NativePointer)
-                            exp.address.writePointer(ptr(value));
-                        else if(typeof(value) === 'string') {
-                            const memstring = Memory.allocUtf8String(value);
-                            exp.address.writePointer(memstring);
-                        }
-                        // databuffer / array
-                    }
-                });
-            }
-        });
-        target[property] = wrapper;
-        return wrapper;
-    }
-});
-exports.modules = modulesApiProxy;
-
-function findModuleByName(name) {
-    let result = Process.findModuleByName(`lib${name}.so`);
-    if(result === null) {
-        result = Process.findModuleByName(`${name}.so`);
-    }
-    if(result === null) {
-        result = Process.findModuleByName(`${name}`);
-    }
-    return result;
-}
-
 let customNames = [];
 function setName( address, size, name ) {
-    if(typeof(address) == 'object') address = parseInt(address.toString(), 16);
+    if(typeof(address) === 'object') address = parseInt(address.toString(), 16);
     customNames.push([address, size, name]);
 }
 exports.setName = setName;
@@ -233,7 +116,7 @@ function showAddrInfo( address ) {
 }
 exports.showAddrInfo = showAddrInfo;
 
-function dumpMem ( address, size, fileName ) {
+function dumpMem(address, size, fileName) {
     address = ptr(address);
     let out = new File(fileName, "wb");
     let protection = getProtection(address);
@@ -307,18 +190,129 @@ function traceCalled ( liborAddr, funcName ) {
 }
 exports.traceCalled = traceCalled;
 
-function stopAt(addr, name) {
-    addr = ptr(addr);
-    Interceptor.attach(addr, {
-        onEnter: function(args) {
-            console.log("stopAt", addr, name);
-            eval(easy_frida.interact);
-        }
-    });
+const modulesApi = {};
+function apiCaller() {
+    if(this.nativeFunction) {
+        return this.nativeFunction.apply(this.nativeFunction, arguments);
+    }
+    if(this.signature !== undefined) {
+        this.nativeFunction = makefunction(
+            this.ptr, '',
+            this.signature.retType, 
+            this.signature.argList, 
+            this.signature.options);
+        return this.nativeFunction.apply(this.nativeFunction, arguments);
+    }
+    console.log(`[E] signature for function ${this.name} hasn't defined.`);
+    return null;
 }
-exports.stopAt = stopAt;
 
-// https://codeshare.frida.re/@oleavr/read-std-string/
+const modulesApiProxy = new Proxy(modulesApi, {
+    has(target, property) {
+        return findModuleByName(property) !== null;
+    },
+    get(target, property) {
+        if(property in target) {
+            return target[property];
+        }
+        const module = findModuleByName(property);
+        if(module === null) return;
+
+        const wrapper = {};
+        wrapper.$module = module;
+        module.enumerateExports().forEach(exp =>  {
+            if(exp.name in wrapper) {
+                // console.log(exp.type, exp.name, exp.address);
+                return;
+            }
+            if(exp.type === 'function') {
+                const functionWrapper = {};
+                functionWrapper.ptr = exp.address;
+                functionWrapper.name = exp.name;
+                functionWrapper.wrapper = apiCaller.bind(functionWrapper);
+                functionWrapper.wrapper.ptr = exp.address;
+                Object.defineProperty(functionWrapper.wrapper, 'signature', {
+                    get: function() {
+                        return functionWrapper.signature;
+                    },
+                    set: function(signature) {
+                        functionWrapper.signature = {
+                            retType: signature[0],
+                            argList: signature[1],
+                            options: signature.length === 3 ? signature[2] : undefined
+                        }
+                    }
+                });
+                Object.defineProperty(wrapper, exp.name, {
+                    get: function() {
+                        return functionWrapper.wrapper;
+                    },
+                    set: function(value) {
+                        if(value instanceof Array) {
+                            functionWrapper.signature = {
+                                retType: value[0],
+                                argList: value[1],
+                                options: value.length === 3 ? value[2] : undefined
+                            }
+                        }
+                        else if(value instanceof Function) {
+                            if(functionWrapper.signature !== undefined) {
+                                const callback = new NativeCallback(value, functionWrapper.signature.retType, functionWrapper.signature.argList);
+                                Interceptor.replace(functionWrapper.ptr, callback);
+                            }
+                            else
+                                console.log(`[E] signature for function ${functionWrapper.name} hasn't defined.`);
+                        }
+                        else if(value.onEnter !== undefined || value.onLeave !== undefined) {
+                            Interceptor.attach(functionWrapper.ptr, value);
+                        }
+                    }
+                });
+            }
+            else if(exp.type === 'variable') {
+                Object.defineProperty(wrapper, exp.name, {
+                    get: function() {
+                        return exp.address;
+                    },
+                    set: function(value) {
+                        if(typeof(value) === 'number' || value instanceof NativePointer)
+                            exp.address.writePointer(ptr(value));
+                        else if(typeof(value) === 'string') {
+                            const memstring = Memory.allocUtf8String(value);
+                            exp.address.writePointer(memstring);
+                        }
+                        // databuffer / array
+                    }
+                });
+            }
+        });
+        target[property] = wrapper;
+        return wrapper;
+    }
+});
+exports.modules = modulesApiProxy;
+
+function findModuleByName(name) {
+    let result = Process.findModuleByName(name);
+    if(result !== null) return result;
+    switch(Process.platform) {
+        case 'windows':
+            name += '.dll';
+            break;
+        case 'linux':
+        case 'qnx':
+            name += '.so';
+            break;
+        case 'darwin':
+            name += '.dylib';
+            break;
+    }
+    result = Process.findModuleByName(name);
+    if(result !== null) return result;
+    result = Process.findModuleByName('lib' + name);
+    return result;
+}
+
 function readStdString(str) {
     const isTiny = (str.readU8() & 1) === 0;
     if (isTiny) {
@@ -328,15 +322,197 @@ function readStdString(str) {
 }
 exports.readStdString = readStdString;
 
-// traceFunction(null, 'open', 'i.fd', ['s.name']);
-// retType can be Array:
-// traceFunction(null, 'memcpy', [
-//      'p.dest',   // retval's type
-//      'd32.dest', // arg1 as out
-//                  // arg2 as out ...
-//      ], 
-//      ['p.dest', 'p.src', 'i.size']);
-function traceFunction (liborAddr, funcName, retType, argList, hooks) {
+function cprintf(format, args, vaArgIndex = 1) {
+    let handleidx = vaArgIndex;
+    let result = '';
+    let numbers = "0123456789";
+    let flagschar = "-+ 0'#";
+    // %[parameter][flags][width][.precision][length]type
+    let transer = Memory.alloc(16);
+    for(let i = 0; i < format.length; ++i) {
+        if(format[i] == '%') {
+            i++;
+            // parameter
+            if(numbers.indexOf(format[i]) >= 0) {
+                let j = 1;
+                while(numbers.indexOf(format[i + j]) >= 0) ++j;
+                if(format[i + j] == '$') {
+                    // parameter selector here
+                    handleidx = parseInt(format.slice(i, j));
+                    i = i + j + 1;
+                }
+            }
+            // flags
+            let positiveSign = '';
+            let numpad = ' ';
+            while(flagschar.indexOf(format[i]) >= 0) {
+                switch(format[i]) {
+                    case "-":
+                        // TODO: Left-align
+                        break;
+                    case "+":
+                        positiveSign = '+';
+                        break;
+                    case " ":
+                        if(positiveSign == '') positiveSign = ' ';
+                        break;
+                    case "0":
+                        numpad = '0';
+                        break;
+                    case "'":
+                        // TODO: thousands grouping separator
+                        break;
+                    case "#":
+                        // TODO 
+                        break;
+                }
+                ++i;
+            }
+            // width
+            let minOutChars = null;
+            if(numbers.indexOf(format[i]) >= 0) {
+                let j = 1;
+                while(numbers.indexOf(format[i + j]) >= 0) ++j;
+                minOutChars = parseInt(format.slice(i, j));
+                i = i + j;
+            }
+            else if(format[i] == "*") {
+                minOutChars = args[handleidx].toUInt32();
+                handleidx++;
+                i++;
+            }
+            // .precision
+            let maxOutChars = null;
+            if(format[i] == ".") {
+                i++;
+                if(numbers.indexOf(format[i]) >= 0) {
+                    let j = 1;
+                    while(numbers.indexOf(format[i + j]) >= 0) ++j;
+                    maxOutChars = parseInt(format.slice(i, j));
+                    i = i + j;
+                }
+                else if(format[i] == "*") {
+                    maxOutChars = args[handleidx].toUInt32();
+                    handleidx++;
+                    i++;
+                }
+            }
+            // Length
+            let length = null;
+            switch(format[i]) {
+                case 'h':
+                    if(format[i+1] == 'h') {
+                        i++;
+                        length = 1;
+                    }
+                    else length = 2;
+                    i++;
+                    break;
+                case 'l':
+                    if(format[i+1] == 'l') {
+                        length = 8;
+                        i++;
+                    }
+                    else length = 4;
+                    i++;
+                    break;
+                case 'L':
+                    // TODO
+                    i++;
+                    break;
+                case 'z':
+                    length = Process.pointerSize;
+                    i++;
+                    break;
+                case 'j':
+                    length = 4;
+                    i++;
+                    break;
+                case 't':
+                    length = Process.pointerSize;
+                    i++;
+                    break;
+            }
+            // type
+            // TODO: witdh and length control
+            switch(format[i]) {
+                case "%":
+                    result += "%";
+                    break;
+                case "d":
+                case "i":
+                    // TODO: 64bit minus
+                    if(length && length >= 8) result += parseInt(args[handleidx]);
+                    else result += args[handleidx].toInt32();
+                    handleidx++;
+                    break;
+                case "u":
+                    if(length && length >= 8) result += parseInt(args[handleidx]);
+                    result += args[handleidx].toUInt32();
+                    handleidx++;
+                    break;
+                case "f":
+                case "F":
+                    transer.writePointer(args[handleidx]);
+                    result += transer.readDouble();
+                    handleidx++;
+                    break;
+                case "e":
+                case "E":
+                case "g":
+                case "G":
+                    // TODO
+                    transer.writePointer(args[handleidx]);
+                    result += transer.readDouble();
+                    handleidx++;
+                    break;
+                case "x":
+                    if(length && length >= 8) result += parseInt(args[handleidx]).toString(16);
+                    else result += args[handleidx].toUInt32().toString(16);
+                    handleidx++;
+                    break;
+                case "X":
+                    if(length && length >= 8) result += parseInt(args[handleidx]).toString(16).toUpperCase();
+                    else result += args[handleidx].toUInt32().toString(16).toUpperCase();
+                    handleidx++;
+                    break;
+                case "o":
+                    if(length && length >= 8) result += parseInt(args[handleidx]).toString(8);
+                    else result += args[handleidx].toUInt32().toString(8);
+                    handleidx++;
+                    break;
+                case "s":
+                    result += args[handleidx].readCString();
+                    handleidx++;
+                    break;
+                case "c":
+                    result += String.fromCharCode(args[handleidx].toUInt32() & 0xff);
+                    handleidx++;
+                    break;
+                case "p":
+                    result += args[handleidx];
+                    handleidx++;
+                    break;
+                case "a":
+                case "A":
+                    result += args[handleidx];
+                    handleidx++;
+                    break;
+                case "n":
+                    // do nothing here
+                    handleidx++;
+                    break;
+            }
+        }
+        else {
+            result += format[i];
+        }
+    }
+    return result;
+}
+exports.cprintf = cprintf;
+
+function traceFunction (liborAddr, funcName, retType, argTypes, hooks) {
     if(hooks === undefined) hooks = {};
     let funcAddr;
     if(liborAddr === null || typeof(liborAddr) == 'string') {
@@ -355,7 +531,7 @@ function traceFunction (liborAddr, funcName, retType, argList, hooks) {
             this.args = [];
             this.fid = fid;
             fid += 1;
-            let argslen = argList.length;
+            let argslen = argTypes.length;
             if(retType instanceof Array && retType.length-1 > argslen)
                 argslen = retType.length-1;
             for(let i = 0; i < argslen; ++i) {
@@ -364,9 +540,9 @@ function traceFunction (liborAddr, funcName, retType, argList, hooks) {
             this.caller = symbolName(this.returnAddress);
             let logMsg = `[${this.tid}](${this.fid}): ${funcName}(`;
             let todump = [];
-            if(argList.length > 0) {
-                for(let i in argList) {
-                    let argName = argList[i];
+            if(argTypes.length > 0) {
+                for(let i in argTypes) {
+                    let argName = argTypes[i];
                     let argval = args[i];
                     if(argName[0] == 'd') {
                         logMsg += `${getArgName(argName)}=${argval}, `;
@@ -430,76 +606,3 @@ function showThreads() {
     }
 }
 exports.showThreads = showThreads;
-
-function findElfSegment(moduleOrName, segName) {
-    let module = moduleOrName;
-    if(typeof(moduleOrName) === 'string') {
-        module = Process.findModuleByName(moduleOrName);
-    }
-    if(module) {
-        let SHT_offset;
-        let SHT_size_offset;
-        let SHT_count_offset;
-        let SHT_strtidx_offset;
-        let SHTH_addr_offset;
-        let SHTH_vaddr_offset;
-        let SHTH_nameidx_offset = 0;
-        let SHTH_size_offset;
-        if(Process.arch === "arm" || Process.arch === "ia32" ) {
-            SHT_offset = 0x20;
-            SHT_size_offset = 0x2e;
-            SHT_count_offset = 0x30;
-            SHT_strtidx_offset = 0x32;
-            
-            SHTH_vaddr_offset = 0x0c;
-            SHTH_addr_offset = 0x10;
-            SHTH_size_offset = 0x14;
-        } else if (Process.arch === "arm64" || Process.arch === "x64") {
-            SHT_offset = 0x28;
-            SHT_size_offset = 0x3a;
-            SHT_count_offset = 0x3c;
-            SHT_strtidx_offset = 0x3e;
-            
-            SHTH_vaddr_offset = 0x10;
-            SHTH_addr_offset = 0x18;
-            SHTH_size_offset = 0x20;
-        }
-        // const elf = new File(module.path, 'rb');
-        modulesApiProxy.c.fopen = ['pointer', ['string', 'string']];
-        modulesApiProxy.c.fseek = ['int', ['pointer', 'int', 'int']];
-        modulesApiProxy.c.ftell = ['int', ['pointer']];
-        modulesApiProxy.c.fread = ['uint', ['pointer', 'uint', 'uint', 'pointer']];
-        modulesApiProxy.c.malloc = ['pointer', ['uint']];
-        modulesApiProxy.c.free = ['int', ['pointer']];
-        modulesApiProxy.c.fclose = ['int', ['pointer']];
-        
-        const fd = modulesApiProxy.c.fopen(module.path, 'rb');
-        modulesApiProxy.c.fseek(fd, 0, 2);
-        const fsize = modulesApiProxy.c.ftell(fd);
-        const buffer = modulesApiProxy.c.malloc(fsize + 0x10);
-        modulesApiProxy.c.fseek(fd, 0, 0);
-        modulesApiProxy.c.fread(buffer, fsize, 1, fd);
-        modulesApiProxy.c.fclose(fd);
-        
-        const SHT = buffer.add(SHT_offset).readPointer();
-        const SHT_size = buffer.add(SHT_size_offset).readU16();
-        const SHT_count = buffer.add(SHT_count_offset).readU16();
-        const SHT_strtidx = buffer.add(SHT_strtidx_offset).readU16();
-        const SHT_strtblItem = buffer.add(SHT).add(SHT_strtidx*SHT_size);
-        const segNameTable = buffer.add(SHT_strtblItem.add(SHTH_addr_offset).readPointer());
-        for(let i = 0; i < SHT_count; ++i) {
-            let SHT_item = buffer.add(SHT).add(i*SHT_size);
-            let curSegAddr = SHT_item.add(SHTH_vaddr_offset).readPointer();
-            let curSegSize = parseInt(SHT_item.add(SHTH_size_offset).readPointer().toString(10));
-            let segNamePtr = segNameTable.add(SHT_item.add(SHTH_nameidx_offset).readU16());
-            let curSegName = segNamePtr.readCString();
-            if(curSegName === segName) {
-                modulesApiProxy.c.free(buffer);
-                return {addr: module.base.add(curSegAddr), size: curSegSize};
-            }
-        }
-        modulesApiProxy.c.free(buffer);
-        return null;
-    }
-}
-exports.findElfSegment = findElfSegment;

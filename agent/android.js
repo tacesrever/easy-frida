@@ -1,15 +1,14 @@
 
-const easy_frida = require("./easy_frida.js");
-const na = require("./native.js");
-const fs = require("frida-fs");
+const easy_frida = require('./easy_frida');
+const native = require('./native');
+const linux = require('./linux');
 
-function real(obj) {
-    if(Java.available && obj && obj.$className) {
-        return Java.cast(obj, Java.use(obj.$className));
-    }
-    return obj;
-}
-exports.real = real;
+function javaBacktrace() { if(Java.available) {
+    const androidUtilLog = Java.use('android.util.Log');
+    const javaLangException = Java.use('java.lang.Exception');
+    console.log(androidUtilLog.getStackTraceString(javaLangException.$new()));
+}}
+exports.javaBacktrace = javaBacktrace;
 
 let _dump_backtrace_to_file = null;
 // type: enum DebuggerdDumpType : uint8_t {
@@ -24,15 +23,14 @@ function dump_backtrace_to_file(tid, type, outname) {
         if(address === null) return;
         // tid, type, outfd
         _dump_backtrace_to_file = new NativeFunction(address, 'int', ['uint', 'int', 'int']);
-        na.modules.c.open = ['int', ['string', 'int', 'int']];
-        na.modules.c.close = ['int', ['int']];
+        native.modules.c.open = ['int', ['string', 'int', 'int']];
+        native.modules.c.close = ['int', ['int']];
     }
     // O_CREAT | O_WRONLY, 0644
-    const fd = na.modules.c.open(outname, 65, 420);
+    const fd = native.modules.c.open(outname, 65, 420);
     _dump_backtrace_to_file(tid, type, fd);
-    na.modules.c.close(fd);
+    native.modules.c.close(fd);
 }
-exports.dump_backtrace_to_file = dump_backtrace_to_file;
 
 // ref: cs.android.com
 // system/core/libunwindstack/include/unwindstack/Ucontext{arch}.h
@@ -73,19 +71,37 @@ let backtracers = {};
 const tmpStdString = Memory.alloc(0x20);
 function backtrace(tidOrContext) {
     let tid, context;
+    let BacktraceCreate, Unwind, FormatFrameData;
     if(libBacktrace === null) {
         if(Process.findModuleByName("libbacktrace.so") === null) Module.load("libbacktrace.so");
         if(Process.findModuleByName("libbacktrace.so") === null) {
             console.log("libbacktrace not found");
             return;
         }
-        libBacktrace = na.modules.backtrace;
-        // Backtrace.Create
-        libBacktrace._ZN9Backtrace6CreateEiiP12BacktraceMap = ['pointer', ['int', 'int', 'pointer']];
-        // BacktraceCurrent.Unwind
-        libBacktrace._ZN16BacktraceCurrent6UnwindEjPv = ['bool', ['pointer', 'int', 'pointer']];
-        // Backtrace.FormatFrameData
-        libBacktrace._ZN9Backtrace15FormatFrameDataEj = ['pointer', ['pointer', 'pointer', 'int']];
+        libBacktrace = native.modules.backtrace;
+        
+        if(Process.arch === 'arm') {
+            // Backtrace.Create
+            libBacktrace._ZN9Backtrace6CreateEiiP12BacktraceMap = ['pointer', ['int', 'int', 'pointer']];
+            BacktraceCreate = libBacktrace._ZN9Backtrace6CreateEiiP12BacktraceMap;
+            // BacktraceCurrent.Unwind
+            libBacktrace._ZN16BacktraceCurrent6UnwindEjPv = ['bool', ['pointer', 'int', 'pointer']];
+            Unwind = libBacktrace._ZN16BacktraceCurrent6UnwindEjPv;
+            // Backtrace.FormatFrameData
+            libBacktrace._ZN9Backtrace15FormatFrameDataEj = ['pointer', ['pointer', 'pointer', 'int']];
+            FormatFrameData = libBacktrace._ZN9Backtrace15FormatFrameDataEj;
+        }
+        else if(Process.arch === 'arm64') {
+            // Backtrace.Create
+            libBacktrace._ZN9Backtrace6CreateEiiP12BacktraceMap = ['pointer', ['int', 'int', 'pointer']];
+            BacktraceCreate = libBacktrace._ZN9Backtrace6CreateEiiP12BacktraceMap;
+            // BacktraceCurrent.Unwind
+            libBacktrace._ZN16BacktraceCurrent6UnwindEmPv = ['bool', ['pointer', 'int', 'pointer']];
+            Unwind = libBacktrace._ZN16BacktraceCurrent6UnwindEmPv;
+            // Backtrace.FormatFrameData
+            libBacktrace._ZN9Backtrace15FormatFrameDataEm = ['pointer', ['pointer', 'pointer', 'int']];
+            FormatFrameData = libBacktrace._ZN9Backtrace15FormatFrameDataEm;
+        }
     }
     if(tidOrContext === undefined) {
         tid = Process.getCurrentThreadId();
@@ -105,9 +121,6 @@ function backtrace(tidOrContext) {
         }
     }
     if(backtracers[tid] === undefined) {
-        const BacktraceCreate = libBacktrace._ZN9Backtrace6CreateEiiP12BacktraceMap;
-        const Unwind = libBacktrace._ZN16BacktraceCurrent6UnwindEjPv;
-        const FormatFrameData = libBacktrace._ZN9Backtrace15FormatFrameDataEj;
         const backtracer = BacktraceCreate(Process.id, tid, ptr(0));
         
         Object.defineProperty(backtracer, "Unwind", {
@@ -131,7 +144,7 @@ function backtrace(tidOrContext) {
     let i = 0;
     while(1) {
         threadBacktracer.FormatFrameData(tmpStdString, i);
-        const frameMsg = na.readStdString(tmpStdString);
+        const frameMsg = native.readStdString(tmpStdString);
         if(frameMsg === "") break;
         console.log(frameMsg);
         i += 1;
@@ -139,10 +152,27 @@ function backtrace(tidOrContext) {
 }
 exports.backtrace = backtrace;
 
-// fn(0) called before lib's init functions called,
-// fn(1) after.
 let monitor_libs = [];
 let linker = null;
+global.logcatLevel = 0xff;
+function showLogcat(showLevel) {
+    if(showLevel) logcatLevel = showLevel;
+    const levelstrs = ['F', 'E', 'W', 'I', 'D', 'V'];
+    Interceptor.attach(Module.findExportByName(null, "__android_log_print"), {
+        onEnter: function(args) {
+            let level = args[0].toUInt32();
+            if(logcatLevel > level) {
+                let tag = args[1].readCString();
+                let fmtstr = args[2].readCString();
+                if(level < levelstrs.length) level = levelstrs[level];
+                console.log(`[${level} : ${tag}]`, native.cprintf(fmtstr, args, 3));
+            }
+            
+        }
+    });
+}
+exports.showLogcat = showLogcat;
+
 function libraryOnLoad(libname, fn) {
     // __dl__ZN6soinfo17call_constructorsEv in /system/bin/linker | /system/bin/linker64
     const addr_arm = 0x1A63D;
@@ -209,7 +239,7 @@ exports.libraryOnLoad = libraryOnLoad;
 function avoidConflict() {
     function diableGadgets() {
         const fridaGadget = Process.findModuleByName("libadirf.so");
-        const initseg = na.findElfSegment(fridaGadget, ".init_array");
+        const initseg = linux.findElfSegment(fridaGadget, ".init_array");
         Memory.protect(initseg.addr, initseg.size, 'rw-');
         for(let offset = 0; offset < initseg.size; offset += Process.pointerSize) {
             let fptr = initseg.addr.add(offset).readPointer();
@@ -247,23 +277,53 @@ function adblog() { let args = arguments; Java.perform(function() {
 function logScreen() { Java.perform(function() {
     const View = Java.use("android.view.View");
     const Activity = Java.use("android.app.Activity");
+
+    function getViewIdStr(view) {
+        let r = view.mResources.value;
+        let idstr = view.$className;
+        let id = view.getId();
+        idstr += "@"+id.toString(16);
+        try {
+            idstr += ":" + r.getResourceTypeName(id)+"/"+r.getResourceEntryName(id);
+        } catch {}
+        return idstr;
+    }
+
     View.performClick.implementation = function() {
         let listener = this.getListenerInfo().mOnClickListener.value;
-        let r = this.mResources.value;
-        let myidstr = this.$className;
-        let id = this.getId();
-        if(id > 0 && r && r.resourceHasPackage(id)) {
-            myidstr += "@"+id.toString(16)+":";
-            myidstr += r.getResourceTypeName(id)+"/"+r.getResourceEntryName(id);
-        }
+        let myidstr = getViewIdStr(this);
         if(listener) console.log(`[Screen] ${listener.$className}.onClick(${myidstr})`);
-        else log(`[Screen] None.onClick(${myidstr})`);
+        else console.log(`[Screen] None.onClick(${myidstr})`);
         return this.performClick.apply(this, arguments);
     }
     
+    // View.dispatchVisibilityChanged.implementation = function(changedView, visibility) {
+    //     if(visibility === 0) { // VISIBLE
+    //         let logmsg = getViewIdStr(changedView);
+    //         if(changedView.getAttachedActivity() !== null) {
+    //             logmsg = changedView.getAttachedActivity().$className + " -> " + logmsg;
+    //         }
+    //         console.log("show:", logmsg);
+    //     }
+    //     return this.dispatchVisibilityChanged(changedView, visibility);
+    // }
+    
     Activity.onResume.implementation = function() {
-        log(`[Screen] ${this.$className}.onResume`);
+        console.log(`[Screen] ${this.$className}.onResume`);
         return this.onResume.apply(this, arguments);
     }
 });}
 exports.logScreen = logScreen;
+
+function debugWebView() { Java.perform(function() {
+    const WebView = Java.use("android.webkit.WebView");
+    WebView.$init.overload(
+      'android.content.Context', 
+      'android.util.AttributeSet', 
+      'int', 'int', 'java.util.Map', 'boolean').implementation = function() {
+        WebView.setWebContentsDebuggingEnabled(true);
+        console.log("WebView.setWebContentsDebuggingEnabled called");
+        return this.$init.apply(this, arguments);
+    }
+});}
+exports.debugWebView = debugWebView;

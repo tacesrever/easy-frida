@@ -1,6 +1,5 @@
 
 let cachedApi = null;
-const ef = require("./easy_frida.js");
 const na = require("./native.js");
 const android = require("./android.js");
 
@@ -337,7 +336,7 @@ function fromClass(clz) {
 
 function fromObject(handle) {
     const api = getApi();
-    if(api === null) return;
+    if(api === null) return null;
     if(typeof(handle) === 'number') handle = ptr(handle);
     if(handle.isNull()) return null;
     const clz = api.il2cpp_object_get_class(handle);
@@ -493,7 +492,7 @@ function dump(addrfile, output) {
 
 function newString(s) {
     const api = getApi();
-    if(api === null) return;
+    if(api === null) return null;
     const sptr = Memory.allocUtf8String(s);
     return api.il2cpp_string_new(sptr);
 }

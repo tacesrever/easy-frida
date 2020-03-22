@@ -2,14 +2,12 @@
   "name": "easy-frida-agent",
   "version": "1.0.0",
   "description": "agent",
-  "main": "main.js",
+  "main": "main.ts",
   "author": "tacesrever",
-  "scripts": {
-    "prepare": "npm run build",
-    "build": "frida-compile main.js -o ../_main.js"
-  },
   "devDependencies": {
-    "frida-compile": "^9.1.0"
+    "@types/frida-gum": "^15.1.0",
+    "@types/node": "^13.9.2",
+    "frida-compile": "^9.3.0"
   },
   "dependencies": {}
 }
