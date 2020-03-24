@@ -29,7 +29,7 @@ function sleep(ms) {
 
 function compile(fileName) {
     let tmpname = path.extname(fileName);
-    if(!['.js', '.ts'].includes(name)) {
+    if(!['.js', '.ts'].includes(tmpname)) {
         console.log("not support ext:", tmpname);
         return false;
     }
@@ -466,10 +466,19 @@ class EasyFrida {
         }
     }
     
-    async startServer() {
-        if (this.location == 'usb') {
-            await adb_shell(`${this.serverDir}${this.server} -D`, 1).catch(()=>{});
-        }
+    startServer() {
+        return new Promise((resolve) => {
+            if (this.location == 'usb') {
+                this.device.getProcess('adirf').then(proc => {
+                    resolve();
+                }).catch( () => {
+                    adb_shell(`${this.serverDir}${this.server} -D`, 1).then(r => {
+                        resolve();
+                    });
+                });
+            }
+        });
+        
     }
     
     async stopServer() {

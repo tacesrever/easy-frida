@@ -19,7 +19,13 @@ const config = {
     "noEmit": true,
     "strict": true,
     "esModuleInterop": true,
-    "baseUrl": path.join(__dirname, 'agent')
+    "baseUrl": path.join(__dirname, 'agent'),
+    "plugins": [{
+      "name": path.join(__dirname, 'tsplugin'),
+      "classPaths": [
+        "D:/Android/android-sdk/platforms/android-28/android.jar"
+      ]
+    }]
   }
 }
 fs.writeFileSync(path.join(outputdir, 'jsconfig.json'), JSON.stringify(config));

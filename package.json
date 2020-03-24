@@ -7,7 +7,7 @@
   "author": "tacesrever",
   "dependencies": {
     "async-lock": "^1.2.2",
-    "frida": "^12.8.14"
+    "frida": "^12.8.15"
   },
   "bin": {
     "create-injector": "./create-injector.js"

@@ -1,0 +1,23 @@
+{
+	"name": "typescript-frida-plugin",
+	"displayName": "",
+	"description": "typescript Autocomplete plugin for frida",
+	"version": "0.1.0",
+	"publisher": "tacesrever",
+	"repository": "",
+	"main": "dist/index.js",
+	"files": [
+		"dist"
+	],
+	"scripts": {
+		"compile": "tsc -p ."
+	},
+	"devDependencies": {
+		"@types/node": "^12.11.7",
+		"electron-rebuild": "^1.10.1",
+		"typescript": "^3.8.3"
+	},
+	"dependencies": {
+		"java": "^0.12.1"
+	}
+}
