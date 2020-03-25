@@ -277,7 +277,7 @@ function adblog() { let args = arguments; Java.perform(function() {
 function logScreen() { Java.perform(function() {
     const View = Java.use("android.view.View");
     const Activity = Java.use("android.app.Activity");
-
+    
     function getViewIdStr(view) {
         let r = view.mResources.value;
         let idstr = view.$className;

@@ -4,21 +4,24 @@ import * as tslib from 'typescript/lib/tsserverlibrary';
 import * as fs from 'fs';
 import {JavaLoader, JavaClass, JavaMethod, JavaField} from './javaloader';
 
-const logfile = "D:/pluginlog.txt";
+let logfile: string = undefined;
+function log(...msg: {toString: () => string}[]) {
+    if(logfile === undefined) return;
 
-function log(...msg: (string | {toString: () => string})[]) {
     fs.appendFileSync(logfile, msg.map(s => {
         if(s === undefined) return 'undefined';
-        if(s === null) return null;
+        if(s === null) return 'null';
         return s.toString();
     }).join(' ') + "\n");
 }
 
 function init(mod: { typescript: typeof tslib }) {
     const typescript = mod.typescript;
+
     function create(info: tslib.server.PluginCreateInfo) {
         const tsLS = info.languageService;
-        let javaLoader;
+        if(info.config.logfile !== undefined) logfile = info.config.logfile;
+        let javaLoader: JavaLoader;
         try {
             javaLoader = new JavaLoader(info.config.classPaths);
         }
@@ -211,7 +214,16 @@ function init(mod: { typescript: typeof tslib }) {
             }
             return oret;
         }
-        
+        proxy.getCompletionEntryDetails = (fileName, position, name, options, source, pref) => {
+            if(source && source.indexOf("Java_") === 0) {
+                const [type, className] = source.substr(5).split(':');
+                if(type === 'c') {
+                    const klass = javaLoader.getClass(className);
+                    return klass.getCompletionDetails(name);
+                }
+            }
+            return tsLS.getCompletionEntryDetails(fileName, position, name, options, source, pref);
+        }
         return proxy;
     }
 

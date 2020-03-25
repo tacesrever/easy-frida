@@ -39,20 +39,20 @@ export class JavaClass {
     methods: Map<string, JavaMethod> = new Map();
     fields: Map<string, JavaField> = new Map();
     cachedEntries: tslib.CompletionEntry[] = undefined;
+
     constructor(public className: string) {
         this.klass = java.findClassSync(className);
+
         let currentClass = this.klass;
         while(currentClass) {
-            const tmethods = currentClass.getDeclaredMethodsSync();
-            tmethods.forEach(method => {
+            currentClass.getDeclaredMethodsSync().forEach(method => {
                 const methodName: string = method.getNameSync();
                 if(this.methods.get(methodName) === undefined) {
                     this.methods.set(methodName, new JavaMethod(methodName));
                 }
                 this.methods.get(methodName).addOverload(method);
             });
-            const tfields = currentClass.getDeclaredFieldsSync();
-            tfields.forEach(field => {
+            currentClass.getDeclaredFieldsSync().forEach(field => {
                 const fieldName: string = field.getNameSync();
                 if(this.fields.get(fieldName) === undefined) {
                     this.fields.set(fieldName, new JavaField(field));
@@ -75,10 +75,38 @@ export class JavaClass {
         return this.methods.get(methodName);
     }
 
-    getCompletionDetail() {
-    }
-
-    getCompletionSymbol() {
+    getCompletionDetails(name: string) {
+        const isMethod = this.methods.has(name);
+        if(!isMethod && !this.fields.has(name)) return undefined;
+        let details: tslib.CompletionEntryDetails = {
+            name: name,
+            kind: isMethod? tslib.ScriptElementKind.memberFunctionElement:
+                    tslib.ScriptElementKind.memberVariableElement,
+            displayParts: [],
+            documentation: [],
+            kindModifiers: ''
+        }
+        details.displayParts.push({
+            text: '(',
+            kind: 'punctuation'
+        });
+        details.displayParts.push({
+            text: isMethod? 'method': 'field',
+            kind: 'text'
+        });
+        details.displayParts.push({
+            text: ')',
+            kind: 'punctuation'
+        });
+        details.displayParts.push({
+            text: ' ',
+            kind: 'space'
+        });
+        details.displayParts.push({
+            text: this.getProp(name).getJavaWarpper().toString(),
+            kind: 'text'
+        });
+        return details;
     }
 
     getCompletionEntries() {
@@ -126,9 +154,9 @@ export class JavaMethod {
         return undefined;
     }
 
-    getReturnClass(argTypes?: string[]) {
-        if(argTypes === undefined) 
-            return loader.getClass(this.methods[0].getReturnTypeSync().getNameSync());
+    getJavaWarpper(argTypes?: string[]) {
+        if(argTypes === undefined)
+            return this.methods[0];
         if(this.argTypes.length === 0) {
             this.getCompletionEntries();
         }
@@ -139,17 +167,24 @@ export class JavaMethod {
                 for(let i = 0; i < types.length; ++i) {
                     if(types[i] !== argTypes[i]) hit = false;
                 }
-                if(hit) return loader.getClass(this.methods[midx].getReturnTypeSync().getNameSync());
+                if(hit) return this.methods[midx];
             }
             midx++;
         }
         return undefined;
     }
 
-    getCompletionDetail() {
+    getReturnType(argTypes?: string[]): string {
+        const method = this.getJavaWarpper(argTypes);
+        return method? method.getReturnTypeSync().getNameSync(): undefined;
     }
 
-    getCompletionSymbol() {
+    getReturnClass(argTypes?: string[]) {
+        let className = this.getReturnType(argTypes);
+        return className? loader.getClass(className): undefined;
+    }
+
+    getCompletionDetail(name: string) {
     }
 
     getCompletionEntries() {
@@ -234,10 +269,32 @@ export class JavaField {
     constructor(private field) {
     }
 
-    getCompletionDetail() {
+    getJavaWarpper() {
+        return this.field;
     }
 
-    getCompletionSymbol() {
+    getCompletionDetail(name: string) {
+        let symbol = {
+            name: '',
+            valueDeclaration: undefined,
+            flags: 0,
+            escapedName: undefined,
+            declarations: [],
+        };
+        let d: tslib.Declaration
+        switch(name) {
+            case 'value':
+                symbol.name = this.field.getTypeSync().getNameSync();
+            case 'holder':
+                symbol.name = this.field.getDeclaringClassSync().getNameSync();
+            case 'fieldType':
+            case 'fieldReturnType':
+        }
+        return symbol;
+    }
+
+    getType() {
+        return this.field.getTypeSync().getNameSync();
     }
 
     getProp(name: string) {
