@@ -1,26 +1,15 @@
 
 import { GetCompletionsAtPositionOptions } from 'typescript';
 import * as tslib from 'typescript/lib/tsserverlibrary';
-import * as fs from 'fs';
 import {JavaLoader, JavaClass, JavaMethod, JavaField} from './javaloader';
-
-let logfile: string = undefined;
-function log(...msg: {toString: () => string}[]) {
-    if(logfile === undefined) return;
-
-    fs.appendFileSync(logfile, msg.map(s => {
-        if(s === undefined) return 'undefined';
-        if(s === null) return 'null';
-        return s.toString();
-    }).join(' ') + "\n");
-}
+import {setLogfile, log} from './logger';
 
 function init(mod: { typescript: typeof tslib }) {
     const typescript = mod.typescript;
 
     function create(info: tslib.server.PluginCreateInfo) {
         const tsLS = info.languageService;
-        if(info.config.logfile !== undefined) logfile = info.config.logfile;
+        if(info.config.logfile !== undefined) setLogfile(info.config.logfile);
         let javaLoader: JavaLoader;
         try {
             javaLoader = new JavaLoader(info.config.classPaths);
@@ -151,7 +140,9 @@ function init(mod: { typescript: typeof tslib }) {
                             log("argtypes:", JSON.stringify(argTypes));
                             return declareClass.getMethod(mAccExpr.name.text).getReturnClass(argTypes);
                         }
-                        return undefined;
+                        let javaMethod = findClassForExprNode(source, funcExpr) as JavaMethod;
+                        if(javaMethod === undefined) return undefined;
+                        return javaMethod.getReturnClass();
                     case tslib.SyntaxKind.Identifier:
                         let writeRef = findLastWriteRef(source.fileName, current.getStart());
                         let typeName = writeRef.definition.name.split(':')[1];
@@ -163,6 +154,14 @@ function init(mod: { typescript: typeof tslib }) {
                             }
                         }
                         let writeExpr = getNodeAtPosition(source, writeRef.reference.textSpan.start).parent;
+                        while(writeExpr.kind === tslib.SyntaxKind.PropertyAccessExpression)
+                            writeExpr = writeExpr.parent;
+                        if(! [
+                            tslib.SyntaxKind.BinaryExpression, 
+                            tslib.SyntaxKind.PropertyAssignment,
+                            tslib.SyntaxKind.VariableDeclaration,
+                        ].includes(writeExpr.kind))
+                            return undefined;
                         log("pass assign def:", writeExpr.getText(), "name:", writeRef.definition.name);
                         current = writeExpr.getChildAt(2);
                         break;

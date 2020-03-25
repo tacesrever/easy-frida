@@ -1,6 +1,7 @@
 import * as tslib from "typescript/lib/tsserverlibrary";
 import * as java from "java";
 import * as fs from "fs";
+import {log} from './logger';
 
 let loader: JavaLoader;
 export class JavaLoader {
@@ -12,15 +13,14 @@ export class JavaLoader {
                 if(stat.isDirectory()) {
                     try {
                         java.classpath.pushDir(path);
-                    } catch(e) {  };
+                    } catch(e) { log(e.stack) };
                 }
                 else if(stat.isFile()) {
                     try {
                         java.classpath.push(path);
-                    } catch(e) {  };
+                    } catch(e) { log(e.stack) };
                 }
             } else {
-
             }
         });
         loader = this;
@@ -44,6 +44,7 @@ export class JavaClass {
         this.klass = java.findClassSync(className);
 
         let currentClass = this.klass;
+        let isFinalClass = true;
         while(currentClass) {
             currentClass.getDeclaredMethodsSync().forEach(method => {
                 const methodName: string = method.getNameSync();
@@ -58,16 +59,19 @@ export class JavaClass {
                     this.fields.set(fieldName, new JavaField(field));
                 }
             });
+            isFinalClass = false;
             currentClass = currentClass.getSuperclassSync();
         }
     }
 
     getProp(name: string) {
         if(this.methods.get(name)) return this.methods.get(name);
-        return this.fields.get(name);
+        return this.getField(name);
     }
 
     getField(fieldName: string) {
+        while(fieldName[0] === '_' && this.fields.get(fieldName) === undefined)
+            fieldName = fieldName.substr(1);
         return this.fields.get(fieldName);
     }
 
@@ -77,7 +81,7 @@ export class JavaClass {
 
     getCompletionDetails(name: string) {
         const isMethod = this.methods.has(name);
-        if(!isMethod && !this.fields.has(name)) return undefined;
+        if(!isMethod && !this.getField(name)) return undefined;
         let details: tslib.CompletionEntryDetails = {
             name: name,
             kind: isMethod? tslib.ScriptElementKind.memberFunctionElement:
@@ -114,6 +118,7 @@ export class JavaClass {
         this.cachedEntries = [];
         let usedNames = [];
         this.methods.forEach((method, name) => {
+            if(!usedNames.includes(name)) usedNames.push(name);
             let entry: tslib.CompletionEntry = {
                 name: name,
                 sortText: name,
@@ -124,15 +129,14 @@ export class JavaClass {
         });
 
         this.fields.forEach((field, name) => {
+            while(usedNames.includes(name)) name = '_' + name;
+            usedNames.push(name);
             let entry: tslib.CompletionEntry = {
                 sortText: name,
                 name: name,
                 source: "Java_c:" + this.className,
                 kind: tslib.ScriptElementKind.memberVariableElement
             };
-            while(usedNames.includes(name)) name = '_' + name;
-            usedNames.push(name);
-            entry.name = name;
             this.cachedEntries.push(entry);
         });
         return this.cachedEntries;
