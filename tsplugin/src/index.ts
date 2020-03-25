@@ -196,7 +196,7 @@ function init(mod: { typescript: typeof tslib }) {
 
         proxy.getCompletionsAtPosition = (fileName: string, position: number, options: GetCompletionsAtPositionOptions) => {
             const source = getSourceFile(fileName);
-            const oret = tsLS.getCompletionsAtPosition(fileName, position, options);
+            let oret = tsLS.getCompletionsAtPosition(fileName, position, options);
             try {
                 if(options.triggerCharacter === '.') {
                     const completeFor = getNodeAtPosition(source, position).parent.getChildAt(0);
@@ -205,9 +205,18 @@ function init(mod: { typescript: typeof tslib }) {
                     if(klass === undefined) return oret;
                     const extEntries = klass.getCompletionEntries();
                     if(extEntries === undefined) return oret;
-                    oret.entries = extEntries.concat(oret.entries).filter(entry => {
-                        return (entry.kind !== tslib.ScriptElementKind.warning);
-                    });
+                    if(oret === undefined) {
+                        oret = {
+                            entries: extEntries,
+                            isGlobalCompletion: false,
+                            isMemberCompletion: true,
+                            isNewIdentifierLocation: false
+                        }
+                    } else {
+                        oret.entries = extEntries.concat(oret.entries).filter(entry => {
+                            return (entry.kind !== tslib.ScriptElementKind.warning);
+                        });
+                    }
                 }
             } catch(e) {
                 log(e.stack);
