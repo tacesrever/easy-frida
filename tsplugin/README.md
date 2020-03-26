@@ -22,3 +22,9 @@ add plugin config in tsconfig.json:
             }]
         }
     }
+
+## for vscode
+you should use electron-rebuild to rebuild node-java for electron.  
+open vscode, click `Help->About`, then you can see Electron's version,  
+then after electron-rebuild has installed,  
+run `electron-rebuild -w java -v version_of_electron`  
