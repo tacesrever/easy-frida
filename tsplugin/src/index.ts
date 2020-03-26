@@ -170,7 +170,7 @@ function init(mod: { typescript: typeof tslib }) {
                         if(str === undefined) return undefined;
                         argTypes.push(str);
                     }
-                    return method.getReturnClass(argTypes);
+                    return method;
                 } else {
                     let klass = parent as JavaClass;
                     let method = klass.getMethod(funcName);
