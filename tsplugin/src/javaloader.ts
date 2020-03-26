@@ -36,15 +36,24 @@ export class JavaLoader {
 
 export class JavaClass {
     klass: any;
+    subTypes: string[] = [];
     methods: Map<string, JavaMethod> = new Map();
     fields: Map<string, JavaField> = new Map();
     cachedEntries: tslib.CompletionEntry[] = undefined;
-
     constructor(public className: string) {
         this.klass = java.findClassSync(className);
+        
+        this.klass.getInterfacesSync().forEach(i => {
+            this.subTypes.push(i.getNameSync());
+        });
 
+        this.methods.set("$new", new JavaMethod("$new"));
+        this.methods.set("$init", new JavaMethod("$init"));
+        this.klass.getConstructorsSync().forEach(method => {
+            this.methods.get("$new").addOverload(method);
+            this.methods.get("$init").addOverload(method);
+        });
         let currentClass = this.klass;
-        let isFinalClass = true;
         while(currentClass) {
             currentClass.getDeclaredMethodsSync().forEach(method => {
                 const methodName: string = method.getNameSync();
@@ -59,13 +68,21 @@ export class JavaClass {
                     this.fields.set(fieldName, new JavaField(field));
                 }
             });
-            isFinalClass = false;
+            this.subTypes.push(currentClass.getNameSync());
             currentClass = currentClass.getSuperclassSync();
         }
     }
 
+    getTypeName() {
+        return this.className;
+    }
+
+    getSubTypes() {
+        return this.subTypes;
+    }
+
     getProp(name: string) {
-        if(this.methods.get(name)) return this.methods.get(name);
+        if(this.getMethod(name)) return this.getMethod(name);
         return this.getField(name);
     }
 
@@ -77,6 +94,10 @@ export class JavaClass {
 
     getMethod(methodName: string) {
         return this.methods.get(methodName);
+    }
+
+    getJavaWarpper() {
+        return this.klass;
     }
 
     getCompletionDetails(name: string) {
@@ -113,9 +134,38 @@ export class JavaClass {
         return details;
     }
 
-    getCompletionEntries() {
+    getCompletionEntries(originEntries?: tslib.CompletionEntry[]) {
         if(this.cachedEntries !== undefined) return this.cachedEntries;
         this.cachedEntries = [];
+        const fridaClassWarpperProps = {
+            // // declared in @types/frida-gum:
+            "$alloc": tslib.ScriptElementKind.memberFunctionElement,
+            "class": tslib.ScriptElementKind.memberVariableElement,
+            "$className": tslib.ScriptElementKind.memberVariableElement,
+            "$super": tslib.ScriptElementKind.memberVariableElement,
+            // // currently not (or internal):
+            "$dispose": tslib.ScriptElementKind.memberFunctionElement,
+            "$clone": tslib.ScriptElementKind.memberFunctionElement,
+            "$list": tslib.ScriptElementKind.memberFunctionElement,
+            "$ownMembers": tslib.ScriptElementKind.memberVariableElement,
+            "$s": tslib.ScriptElementKind.memberVariableElement,
+            "toJSON": tslib.ScriptElementKind.memberFunctionElement,
+            "$isSameObject": tslib.ScriptElementKind.memberFunctionElement,
+            "$getCtor": tslib.ScriptElementKind.memberFunctionElement,
+            "$borrowClassHandle": tslib.ScriptElementKind.memberFunctionElement,
+            "$copyClassHandle": tslib.ScriptElementKind.memberFunctionElement,
+            "$has": tslib.ScriptElementKind.memberFunctionElement,
+            "$find": tslib.ScriptElementKind.memberFunctionElement
+        }
+        for(const name in fridaClassWarpperProps) {
+            let entry: tslib.CompletionEntry = {
+                name: name,
+                sortText: name,
+                kind: fridaClassWarpperProps[name],
+                source: ""
+            };
+            this.cachedEntries.push(entry);
+        }
         let usedNames = [];
         this.methods.forEach((method, name) => {
             if(!usedNames.includes(name)) usedNames.push(name);
@@ -150,8 +200,21 @@ export class JavaMethod {
     constructor(public methodName: string) {
     }
 
+    // as argument?
+    getTypeName() {
+        return '';
+    }
+
+    getOverloadCount() {
+        return this.methods.length;
+    }
+
     addOverload(method) {
         this.methods.push(method);
+        const argTypes: string[] = method.getParameterTypesSync().map(typeclz => {
+            return typeclz.getNameSync();
+        });
+        this.argTypes.push(argTypes);
     }
 
     getProp(name: string) {
@@ -161,15 +224,21 @@ export class JavaMethod {
     getJavaWarpper(argTypes?: string[]) {
         if(argTypes === undefined)
             return this.methods[0];
-        if(this.argTypes.length === 0) {
-            this.getCompletionEntries();
-        }
         let midx = 0;
         for(const types of this.argTypes) {
             if(argTypes.length === types.length) {
                 let hit = true;
-                for(let i = 0; i < types.length; ++i) {
-                    if(types[i] !== argTypes[i]) hit = false;
+                for(let i = 0; hit && i < types.length; ++i) {
+                    if(types[i] !== argTypes[i]) {
+                        hit = false;
+                        let argClass = loader.getClass(argTypes[i]);
+                        for(const subType of argClass.getSubTypes()) {
+                            if(subType === types[i]) {
+                                hit = true;
+                                break;
+                            }
+                        }
+                    }
                 }
                 if(hit) return this.methods[midx];
             }
@@ -180,7 +249,12 @@ export class JavaMethod {
 
     getReturnType(argTypes?: string[]): string {
         const method = this.getJavaWarpper(argTypes);
-        return method? method.getReturnTypeSync().getNameSync(): undefined;
+        if(method === undefined) return undefined;
+        if(method.getReturnTypeSync !== undefined) {
+            return method.getReturnTypeSync().getNameSync();
+        }
+        // is constructor method
+        return method.getNameSync();
     }
 
     getReturnClass(argTypes?: string[]) {
@@ -191,47 +265,29 @@ export class JavaMethod {
     getCompletionDetail(name: string) {
     }
 
-    getCompletionEntries() {
+    getCompletionEntries(originEntries?: tslib.CompletionEntry[]) {
         if(this.cachedEntries !== undefined) return this.cachedEntries;
+        if(this.methods.length === 0) return undefined;
         this.cachedEntries = [];
         const parentClassName = this.methods[0].getDeclaringClassSync().getNameSync();
-        this.cachedEntries.push({
-            sortText: "methodName",
-            name: "methodName",
-            source: "Java_m:" + parentClassName,
-            kind: tslib.ScriptElementKind.memberVariableElement
-        });
-        this.cachedEntries.push({
-            sortText: "implementation",
-            name: "implementation",
-            source: "Java_m:" + parentClassName,
-            kind: tslib.ScriptElementKind.memberVariableElement
-        });
-        this.cachedEntries.push({
-            sortText: "overloads",
-            name: "overloads",
-            source: "Java_m:" + parentClassName,
-            kind: tslib.ScriptElementKind.memberVariableElement
-        });
-        this.cachedEntries.push({
-            sortText: "argumentTypes",
-            name: "argumentTypes",
-            source: "Java_m:" + parentClassName,
-            kind: tslib.ScriptElementKind.memberVariableElement
-        });
-        this.cachedEntries.push({
-            sortText: "returnType",
-            name: "returnType",
-            source: "Java_m:" + parentClassName,
-            kind: tslib.ScriptElementKind.memberVariableElement
+        const fridaMethodWarpperProps = [
+            "methodName",
+            "implementation",
+            "overloads",
+            "argumentTypes",
+            "returnType",
+        ]
+        fridaMethodWarpperProps.forEach(fieldName => {
+            this.cachedEntries.push({
+                sortText: fieldName,
+                name: fieldName,
+                source: "Java_m:" + parentClassName,
+                kind: tslib.ScriptElementKind.memberVariableElement
+            });
         });
 
-        this.methods.forEach( m => {
-            const argTypes: string[] = m.getParameterTypesSync().map(typeclz => {
-                return typeclz.getNameSync();
-            });
-            this.argTypes.push(argTypes);
-            let overloadArg = '';
+        this.argTypes.forEach(argTypes => {
+        let overloadArg = '';
             if(argTypes.length > 0) {
                 argTypes.forEach(type => {
                     overloadArg += "'" + type + "', "
@@ -242,7 +298,7 @@ export class JavaMethod {
             this.cachedEntries.push({
                 sortText: "overload(",
                 name: "overload(" + overloadArg + ")",
-                source: "Java_m:" + this.methods[0].getDeclaringClassSync().getNameSync(),
+                source: "Java_m:" + parentClassName,
                 kind: tslib.ScriptElementKind.memberVariableElement
             });
         });
@@ -297,7 +353,7 @@ export class JavaField {
         return symbol;
     }
 
-    getType() {
+    getTypeName() {
         return this.field.getTypeSync().getNameSync();
     }
 
@@ -311,7 +367,7 @@ export class JavaField {
         return undefined;
     }
 
-    getCompletionEntries() {
+    getCompletionEntries(originEntries?: tslib.CompletionEntry[]) {
         if(this.cachedEntries === undefined) {
             this.cachedEntries = fieldCompletionEntries.map(entry => {
                 entry.source = "Java_f:" + this.field.getDeclaringClassSync().getNameSync();
