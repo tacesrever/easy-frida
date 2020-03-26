@@ -54,7 +54,26 @@ function init(mod: { typescript: typeof tslib }) {
             }
             return tsLS.getCompletionEntryDetails(fileName, position, name, options, source, pref);
         }
-        
+        proxy.getQuickInfoAtPosition = (fileName, position) => {
+            const info = tsLS.getQuickInfoAtPosition(fileName, position);
+            const source = getSourceFile(fileName);
+            try {
+                let getInfoFor = getNodeAtPosition(source, position);
+                if(getInfoFor.parent.kind === tslib.SyntaxKind.PropertyAccessExpression
+                     && getInfoFor.parent.getChildAt(0) !== getInfoFor) {
+                    getInfoFor = getInfoFor.parent;
+                }
+                const klass = findJavaTypeForExprNode(source, getInfoFor);
+                if(klass !== undefined) {
+                    info.displayParts = [{
+                        text: klass.getJavaWarpper().toString(),
+                        kind: 'text'
+                    }]
+                }
+            } catch(e) { log(e.stack); }
+            return info;
+        }
+
         function getSourceFile(fileName: string) {
             return (tsLS as any).getNonBoundSourceFile(fileName) as tslib.SourceFile;
         }
