@@ -247,6 +247,14 @@ export class JavaMethod {
         return undefined;
     }
 
+    getOverloadMethod(argTypes?: string[]) {
+        const method = this.getJavaWarpper(argTypes);
+        if(method === undefined) return undefined;
+        const aMethod = new JavaMethod(this.methodName);
+        aMethod.addOverload(method);
+        return aMethod;
+    }
+
     getReturnType(argTypes?: string[]): string {
         const method = this.getJavaWarpper(argTypes);
         if(method === undefined) return undefined;
