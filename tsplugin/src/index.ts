@@ -64,12 +64,22 @@ function init(mod: { typescript: typeof tslib }) {
                     getInfoFor = getInfoFor.parent;
                 }
                 const klass = findJavaTypeForExprNode(source, getInfoFor);
-                if(klass !== undefined) {
+                if(klass === undefined) return info;
+                if(getInfoFor.parent.kind === tslib.SyntaxKind.CallExpression
+                    && getInfoFor.parent.getChildAt(0) === getInfoFor) {
+                    const callExpr = getInfoFor.parent as tslib.CallExpression;
+                    const argTypes = extractArgTypes(source, callExpr);
+                    if(argTypes === undefined) return info;
                     info.displayParts = [{
-                        text: klass.getJavaWarpper().toString(),
+                        text: (klass as JavaMethod).getJavaWarpper(argTypes).toString(),
                         kind: 'text'
                     }]
+                    return info;
                 }
+                info.displayParts = [{
+                    text: klass.getJavaWarpper().toString(),
+                    kind: 'text'
+                }]
             } catch(e) { log(e.stack); }
             return info;
         }
@@ -117,6 +127,10 @@ function init(mod: { typescript: typeof tslib }) {
                             }
                         }
                         let writeExpr = getNodeAtPosition(source, writeRef.reference.textSpan.start).parent;
+                        if(writeRef.definition.kind === tslib.ScriptElementKind.parameterElement) {
+                            current = writeExpr;
+                            break;
+                        }
                         while(writeExpr.kind === tslib.SyntaxKind.PropertyAccessExpression)
                             writeExpr = writeExpr.parent;
                         if(! [
@@ -128,7 +142,6 @@ function init(mod: { typescript: typeof tslib }) {
                         log("pass assign def:", writeExpr.getText());
                         current = writeExpr.getChildAt(2);
                         break;
-                    
                     case tslib.SyntaxKind.ElementAccessExpression:
                     case tslib.SyntaxKind.PropertyAccessExpression:
                         let parentNode = current.getChildAt(0);
@@ -156,6 +169,33 @@ function init(mod: { typescript: typeof tslib }) {
                             break;
                         }
                         return undefined;
+                    // parse this and params from:
+                    // func.impl = (...args)
+                    // Java.choose => onMatch: function (instance)
+                    case tslib.SyntaxKind.ThisKeyword:
+                    case tslib.SyntaxKind.Parameter:
+                        let target = current;
+                        while(![tslib.SyntaxKind.FunctionExpression,
+                                tslib.SyntaxKind.FunctionDeclaration,
+                                tslib.SyntaxKind.ArrowFunction]
+                                .includes(current.kind))
+                            current = current.parent;
+                        let funcDefExpr = current as tslib.FunctionLikeDeclaration;
+                        let funcAssignExpr: tslib.Node;
+                        if(funcDefExpr.name !== undefined) {
+                            // TODO: for named function, find use of it
+                            return undefined;
+                        } else {
+                            funcAssignExpr = funcDefExpr.parent;
+                        }
+                        if(! [
+                            tslib.SyntaxKind.BinaryExpression,
+                            tslib.SyntaxKind.PropertyAssignment,
+                        ].includes(funcAssignExpr.kind))
+                            return undefined;
+                        // TODO here
+                        // this or param
+                        // onMatch or impl
                     default:
                         return undefined;
                 }
@@ -183,29 +223,16 @@ function init(mod: { typescript: typeof tslib }) {
                 if(parent === undefined) return undefined;
                 if(funcName === 'overload') {
                     let method = parent as JavaMethod;
-                    let argTypes = [];
-                    for(let i = 0; i < callExpr.arguments.length; ++i) {
-                        let str = getStringLiteral(source, callExpr.arguments[i]);
-                        if(str === undefined) return undefined;
-                        argTypes.push(str);
-                    }
+                    let argTypes = extractArgTypes(source, callExpr);
+                    if(argTypes === undefined) return undefined;
                     return method.getOverloadMethod(argTypes);
                 } else {
                     let klass = parent as JavaClass;
                     let method = klass.getMethod(funcName);
                     if(method.getOverloadCount() === 1)
                         return method.getReturnClass();
-                    let argTypes = [];
-                    for(let i = 0; i < callExpr.arguments.length; ++i) {
-                        let arg = callExpr.arguments[i];
-                        let typeName = commonTypeToJavaType(source, arg);
-                        if(typeName === undefined) {
-                            let type = findJavaTypeForExprNode(source, arg);
-                            if(type === undefined) return undefined;
-                            typeName = type.getTypeName();
-                        }
-                        argTypes.push(typeName);
-                    }
+                    let argTypes = extractArgTypes(source, callExpr);
+                    if(argTypes === undefined) return undefined;
                     return method.getReturnClass(argTypes);
                 }
             }
@@ -214,10 +241,65 @@ function init(mod: { typescript: typeof tslib }) {
             return javaMethod.getReturnClass();
         }
 
-        // TODO
-        // number, string, boolean to java type, for overload arg detect
+        function extractArgTypes(source: tslib.SourceFile, callExpr: tslib.CallExpression) {
+            let argTypes: string[] = [];
+            for(let i = 0; i < callExpr.arguments.length; ++i) {
+                let arg = callExpr.arguments[i];
+                let typeName = commonTypeToJavaType(source, arg);
+                if(typeName === undefined) {
+                    let type = findJavaTypeForExprNode(source, arg);
+                    if(type === undefined) return undefined;
+                    typeName = type.getTypeName();
+                }
+                argTypes.push(typeName);
+            }
+            return argTypes;
+        }
+        
         function commonTypeToJavaType(source: tslib.SourceFile, node: tslib.Node): string {
-            return undefined;
+            switch(node.kind) {
+                case tslib.SyntaxKind.NumericLiteral:
+                    return 'int';
+                case tslib.SyntaxKind.TrueKeyword:
+                case tslib.SyntaxKind.FalseKeyword:
+                    return 'boolean';
+                case tslib.SyntaxKind.NullKeyword:
+                case tslib.SyntaxKind.UndefinedKeyword:
+                    return null;
+                case tslib.SyntaxKind.StringLiteral:
+                    return 'java.lang.String';
+                case tslib.SyntaxKind.Identifier:
+                    let writeRef = findLastWriteRef(source.fileName, node.getStart());
+                    if(writeRef === undefined) return undefined;
+                    let typeName = writeRef.definition.name.split(':')[1];
+                    if(typeName !== undefined) {
+                        typeName = typeName.trim();
+                        switch(typeName) {
+                            case 'number':
+                                return 'int';
+                            case 'boolean':
+                                return 'boolean';
+                            case 'string':
+                                return 'java.lang.String';
+                            default:
+                                break;
+                        }
+                    }
+                    let writeExpr = getNodeAtPosition(source, writeRef.reference.textSpan.start).parent;
+                    while(writeExpr.kind === tslib.SyntaxKind.PropertyAccessExpression)
+                        writeExpr = writeExpr.parent;
+                    if(! [
+                        tslib.SyntaxKind.BinaryExpression, 
+                        tslib.SyntaxKind.PropertyAssignment,
+                        tslib.SyntaxKind.VariableDeclaration,
+                    ].includes(writeExpr.kind))
+                        return undefined;
+                    if(typeName !== undefined && typeName.indexOf('Java.Wrapper') === 0)
+                        return findJavaTypeForExprNode(source, writeExpr.getChildAt(2)).getTypeName();
+                    return commonTypeToJavaType(source, writeExpr.getChildAt(2));
+                default:
+                    return undefined;
+            }
         }
         
         function findLastWriteRef(fileName: string, position: number) {
@@ -248,6 +330,21 @@ function init(mod: { typescript: typeof tslib }) {
                 }
             }
             return {reference, definition};
+        }
+
+        function findFirstUseRef(fileName: string, position: number) {
+            const refinfos = tsLS.findReferences(fileName, position);
+            if(refinfos === undefined) return undefined;
+            
+            for (const refinfo of refinfos) {
+                for (const ref of refinfo.references) {
+                    if(ref.isWriteAccess !== true) {
+                        return {reference: ref, definition: refinfo.definition};
+                    }
+                }
+            }
+
+            return undefined;
         }
 
         function getStringLiteral(source: tslib.SourceFile, node: tslib.Node) {

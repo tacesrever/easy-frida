@@ -229,7 +229,7 @@ export class JavaMethod {
             if(argTypes.length === types.length) {
                 let hit = true;
                 for(let i = 0; hit && i < types.length; ++i) {
-                    if(types[i] !== argTypes[i]) {
+                    if(argTypes[i] !== null && types[i] !== argTypes[i]) {
                         hit = false;
                         let argClass = loader.getClass(argTypes[i]);
                         for(const subType of argClass.getSubTypes()) {
