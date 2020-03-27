@@ -1,5 +1,4 @@
 
-import { GetCompletionsAtPositionOptions, CallExpression } from 'typescript';
 import * as tslib from 'typescript/lib/tsserverlibrary';
 import {JavaLoader, JavaClass, JavaMethod, JavaField} from './javaloader';
 import {setLogfile, log} from './logger';
@@ -18,7 +17,7 @@ function init(mod: { typescript: typeof tslib }) {
             proxy[k] = (...args: Array<{}>) => x.apply(info.languageService, args);
         }
 
-        proxy.getCompletionsAtPosition = (fileName: string, position: number, options: GetCompletionsAtPositionOptions) => {
+        proxy.getCompletionsAtPosition = (fileName: string, position: number, options: tslib.GetCompletionsAtPositionOptions) => {
             const source = getSourceFile(fileName);
             let oret = tsLS.getCompletionsAtPosition(fileName, position, options);
             try {
@@ -212,10 +211,9 @@ function init(mod: { typescript: typeof tslib }) {
                                     break;
                                 }
                             }
-                            log("find param", i);
                             if(methodNode.kind === tslib.SyntaxKind.CallExpression
                                 && methodNode.getChildAt(0).getChildAt(2).getText() === 'overload') {
-                                const argTypeNameNode = (methodNode as CallExpression).arguments[i];
+                                const argTypeNameNode = (methodNode as tslib.CallExpression).arguments[i];
                                 const argTypeName = getStringLiteral(source, argTypeNameNode);
                                 if(argTypeName === undefined) return undefined;
                                 return javaLoader.getClass(argTypeName);
