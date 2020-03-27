@@ -265,6 +265,10 @@ export class JavaMethod {
         return method.getNameSync();
     }
 
+    getArgTypes(midx: number = 0) {
+        return this.argTypes[midx];
+    }
+
     getReturnClass(argTypes?: string[]) {
         let className = this.getReturnType(argTypes);
         return className? loader.getClass(className): undefined;

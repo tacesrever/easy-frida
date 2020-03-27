@@ -1,5 +1,5 @@
 
-import { GetCompletionsAtPositionOptions } from 'typescript';
+import { GetCompletionsAtPositionOptions, CallExpression } from 'typescript';
 import * as tslib from 'typescript/lib/tsserverlibrary';
 import {JavaLoader, JavaClass, JavaMethod, JavaField} from './javaloader';
 import {setLogfile, log} from './logger';
@@ -126,7 +126,7 @@ function init(mod: { typescript: typeof tslib }) {
                                 return undefined;
                             }
                         }
-                        let writeExpr = getNodeAtPosition(source, writeRef.reference.textSpan.start).parent;
+                        let writeExpr = getNodeAtPosition(source, writeRef.reference.textSpan.start + 1).parent;
                         if(writeRef.definition.kind === tslib.ScriptElementKind.parameterElement) {
                             current = writeExpr;
                             break;
@@ -193,9 +193,37 @@ function init(mod: { typescript: typeof tslib }) {
                             tslib.SyntaxKind.PropertyAssignment,
                         ].includes(funcAssignExpr.kind))
                             return undefined;
-                        // TODO here
-                        // this or param
-                        // onMatch or impl
+                        const leftValue = funcAssignExpr.getChildAt(0);
+                        if(leftValue.kind === tslib.SyntaxKind.PropertyAccessExpression
+                          && leftValue.getChildAt(2).getText() === 'implementation') {
+                            let methodNode = leftValue.getChildAt(0);
+                            if(target.kind === tslib.SyntaxKind.ThisKeyword) {
+                                if(methodNode.kind === tslib.SyntaxKind.CallExpression &&
+                                    methodNode.getChildAt(0).getChildAt(2).getText() === 'overload') {
+                                        methodNode = methodNode.getChildAt(0).getChildAt(0);
+                                }
+                                let classNode = methodNode.getChildAt(0);
+                                return findJavaTypeForExprNode(source, classNode);
+                            }
+                            // is parameter
+                            let i;
+                            for(i = 0; i < funcDefExpr.parameters.length; ++i) {
+                                if(funcDefExpr.parameters[i] === target) {
+                                    break;
+                                }
+                            }
+                            log("find param", i);
+                            if(methodNode.kind === tslib.SyntaxKind.CallExpression
+                                && methodNode.getChildAt(0).getChildAt(2).getText() === 'overload') {
+                                const argTypeNameNode = (methodNode as CallExpression).arguments[i];
+                                const argTypeName = getStringLiteral(source, argTypeNameNode);
+                                if(argTypeName === undefined) return undefined;
+                                return javaLoader.getClass(argTypeName);
+                            }
+                            const method = findJavaTypeForExprNode(source, methodNode) as JavaMethod;
+                            if(method === undefined) return undefined;
+                            return javaLoader.getClass(method.getArgTypes(0)[i]);
+                        }
                     default:
                         return undefined;
                 }
