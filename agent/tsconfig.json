@@ -10,13 +10,6 @@
         "baseUrl": "./",
         "paths": {
             "*": ["*", "./*"]
-        },
-        "plugins": [{
-            "name": "../tsplugin",
-            "classPaths": [
-                "D:/Android/android-sdk/platforms/android-28/android.jar"
-            ],
-            "logfile": "D:/tsplugin.log"
-        }]
+        }
     }
 }

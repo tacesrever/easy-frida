@@ -7,4 +7,5 @@ agent/custom_modules/
 agent/lasthash
 agent/main.js
 agent/main.ts
+agent/jsconfig.json
 _main.js
