@@ -1,6 +1,7 @@
 
 import * as tslib from 'typescript/lib/tsserverlibrary';
-import {JavaLoader, JavaClass, JavaMethod, JavaField} from './javaloader';
+import {JavaProviderLoader} from './infoprovider';
+import {ClassInfoProvider, MethodInfoProvider, FieldInfoProvider} from './infoprovider';
 import {setLogfile, log} from './logger';
 
 function init(mod: { typescript: typeof tslib }) {
@@ -9,13 +10,13 @@ function init(mod: { typescript: typeof tslib }) {
     function create(info: tslib.server.PluginCreateInfo) {
         const tsLS = info.languageService;
         if(info.config.logfile !== undefined) setLogfile(info.config.logfile);
-        const javaLoader = new JavaLoader(info.config.classPaths);
-        
         const proxy: tslib.LanguageService = Object.create(null);
         for (let k of Object.keys(info.languageService) as Array<keyof tslib.LanguageService>) {
             const x = info.languageService[k];
             proxy[k] = (...args: Array<{}>) => x.apply(info.languageService, args);
         }
+        
+        const javaLoader = new JavaProviderLoader(info.config.classPaths);
 
         proxy.getCompletionsAtPosition = (fileName: string, position: number, options: tslib.GetCompletionsAtPositionOptions) => {
             const source = getSourceFile(fileName);
@@ -23,9 +24,9 @@ function init(mod: { typescript: typeof tslib }) {
             try {
                 const completeFor = getNodeAtPosition(source, position).parent.getChildAt(0);
                 log("trigger:", options.triggerCharacter, 'completeFor ' + completeFor.getText());
-                const klass = findJavaTypeForExprNode(source, completeFor);
-                if(klass === undefined) return oret;
-                const entries = klass.getCompletionEntries(oret ? oret.entries : undefined);
+                const provider = findInfoProviderForExpr(source, completeFor);
+                if(provider === undefined) return oret;
+                const entries = provider.getCompletionEntries(oret ? oret.entries : undefined);
                 if(entries === undefined) return oret;
                 if(oret === undefined) {
                     oret = {
@@ -43,11 +44,21 @@ function init(mod: { typescript: typeof tslib }) {
             return oret;
         }
         proxy.getCompletionEntryDetails = (fileName, position, name, options, source, pref) => {
+            log("getCompletionEntryDetails", name, source);
             if(source && source.indexOf("Java_") === 0) {
-                const [type, className] = source.substr(5).split(':');
+                let [type, className] = source.substr(5).split(':');
                 if(type === 'c') {
-                    const klass = javaLoader.getClass(className);
-                    const details = klass.getCompletionDetails(name);
+                    const provider = javaLoader.getProviderByName(className);
+                    const details = provider.getCompletionDetail(name);
+                    if(details !== undefined) return details;
+                } else {
+                    const divpos = className.lastIndexOf('.');
+                    const propName = className.substr(divpos + 1);
+                    className = className.substr(0, divpos);
+                    
+                    const provider = javaLoader.getProviderByName(className);
+                    const propProvider = provider.getPropInfoProvider(propName);
+                    const details = propProvider.getCompletionDetail(name);
                     if(details !== undefined) return details;
                 }
             }
@@ -62,21 +73,22 @@ function init(mod: { typescript: typeof tslib }) {
                      && getInfoFor.parent.getChildAt(0) !== getInfoFor) {
                     getInfoFor = getInfoFor.parent;
                 }
-                const klass = findJavaTypeForExprNode(source, getInfoFor);
-                if(klass === undefined) return info;
+                const provider = findInfoProviderForExpr(source, getInfoFor);
+                if(provider === undefined) return info;
+                // get info for overload function
                 if(getInfoFor.parent.kind === tslib.SyntaxKind.CallExpression
                     && getInfoFor.parent.getChildAt(0) === getInfoFor) {
                     const callExpr = getInfoFor.parent as tslib.CallExpression;
-                    const argTypes = extractArgTypes(source, callExpr);
+                    const argTypes = findArgTypesForCallExpr(source, callExpr);
                     if(argTypes === undefined) return info;
                     info.displayParts = [{
-                        text: (klass as JavaMethod).getJavaWarpper(argTypes).toString(),
+                        text: (provider as MethodInfoProvider).getDeclare(argTypes),
                         kind: 'text'
                     }]
                     return info;
                 }
                 info.displayParts = [{
-                    text: klass.getJavaWarpper().toString(),
+                    text: provider.getDeclare(),
                     kind: 'text'
                 }]
             } catch(e) { log(e.stack); }
@@ -106,14 +118,14 @@ function init(mod: { typescript: typeof tslib }) {
             }
         }
 
-        function findJavaTypeForExprNode(source: tslib.SourceFile, node: tslib.Node)
-            : JavaClass | JavaField | JavaMethod {
-            log('find JavaType for', node.getText());
+        function findInfoProviderForExpr(source: tslib.SourceFile, node: tslib.Node)
+            : ClassInfoProvider | FieldInfoProvider | MethodInfoProvider {
+            log('find InfoProvider for', node.getText());
             let current = node;
             while (true) {
                 switch(current.kind) {
                     case tslib.SyntaxKind.CallExpression:
-                        return findReturnType(source, current as tslib.CallExpression);
+                        return findReturnInfoProviderForCallExpr(source, current as tslib.CallExpression);
                     
                     case tslib.SyntaxKind.Identifier:
                         let writeRef = findLastWriteRef(source.fileName, current.getStart());
@@ -152,9 +164,9 @@ function init(mod: { typescript: typeof tslib }) {
                         if(!["value", "$new", "$init", "overload"].includes(propName))
                             propWriteRef = findLastWriteRef(source.fileName, propNode.getEnd());
                         if(propWriteRef === undefined) {
-                            let klass = findJavaTypeForExprNode(source, parentNode);
-                            if(klass === undefined) return undefined;
-                            return klass.getProp(propNode.getText());
+                            let provider = findInfoProviderForExpr(source, parentNode);
+                            if(provider === undefined) return undefined;
+                            return provider.getPropInfoProvider(propNode.getText());
                         }
                         let tmpExpr = getNodeAtPosition(source, propWriteRef.reference.textSpan.start).parent;
                         if(tmpExpr.kind === tslib.SyntaxKind.PropertyAssignment) {
@@ -202,7 +214,7 @@ function init(mod: { typescript: typeof tslib }) {
                                         methodNode = methodNode.getChildAt(0).getChildAt(0);
                                 }
                                 let classNode = methodNode.getChildAt(0);
-                                return findJavaTypeForExprNode(source, classNode);
+                                return findInfoProviderForExpr(source, classNode);
                             }
                             // is parameter
                             let i;
@@ -214,13 +226,13 @@ function init(mod: { typescript: typeof tslib }) {
                             if(methodNode.kind === tslib.SyntaxKind.CallExpression
                                 && methodNode.getChildAt(0).getChildAt(2).getText() === 'overload') {
                                 const argTypeNameNode = (methodNode as tslib.CallExpression).arguments[i];
-                                const argTypeName = getStringLiteral(source, argTypeNameNode);
+                                const argTypeName = findStringLiteral(source, argTypeNameNode);
                                 if(argTypeName === undefined) return undefined;
-                                return javaLoader.getClass(argTypeName);
+                                return javaLoader.getProviderByName(argTypeName);
                             }
-                            const method = findJavaTypeForExprNode(source, methodNode) as JavaMethod;
+                            const method = findInfoProviderForExpr(source, methodNode) as MethodInfoProvider;
                             if(method === undefined) return undefined;
-                            return javaLoader.getClass(method.getArgTypes(0)[i]);
+                            return javaLoader.getProviderByName(method.getParamClassNames()[i]);
                         }
                     default:
                         return undefined;
@@ -228,7 +240,7 @@ function init(mod: { typescript: typeof tslib }) {
             }
         }
 
-        function findReturnType(source: tslib.SourceFile, callExpr: tslib.CallExpression) {
+        function findReturnInfoProviderForCallExpr(source: tslib.SourceFile, callExpr: tslib.CallExpression) {
             let funcExpr = callExpr.expression;
             if(funcExpr.kind === tslib.SyntaxKind.PropertyAccessExpression) {
                 let funcPropAccExpr = funcExpr as tslib.PropertyAccessExpression;
@@ -236,53 +248,53 @@ function init(mod: { typescript: typeof tslib }) {
 
                 if(funcPropAccExpr.expression.getText() === "Java") {
                     if(funcName === 'use') {
-                        return javaLoader.getClass(getStringLiteral(source, callExpr.arguments[0]));
+                        return javaLoader.getProviderByName(findStringLiteral(source, callExpr.arguments[0]));
                     }
                     if(funcName === 'cast') {
-                        let klassNode = callExpr.arguments[1];
-                        if(klassNode === undefined) return undefined;
-                        return findJavaTypeForExprNode(source, klassNode);
+                        let classNode = callExpr.arguments[1];
+                        if(classNode === undefined) return undefined;
+                        return findInfoProviderForExpr(source, classNode);
                     }
                     return undefined;
                 }
-                let parent = findJavaTypeForExprNode(source, funcPropAccExpr.expression);
+                let parent = findInfoProviderForExpr(source, funcPropAccExpr.expression);
                 if(parent === undefined) return undefined;
                 if(funcName === 'overload') {
-                    let method = parent as JavaMethod;
-                    let argTypes = extractArgTypes(source, callExpr);
+                    let method = parent as MethodInfoProvider;
+                    let argTypes = findArgTypesForCallExpr(source, callExpr);
                     if(argTypes === undefined) return undefined;
-                    return method.getOverloadMethod(argTypes);
+                    return method.getOverloadInfoProvider(argTypes);
                 } else {
-                    let klass = parent as JavaClass;
-                    let method = klass.getMethod(funcName);
-                    if(method.getOverloadCount() === 1)
-                        return method.getReturnClass();
-                    let argTypes = extractArgTypes(source, callExpr);
+                    let klass = parent as ClassInfoProvider;
+                    let method = klass.getMethodInfoProvider(funcName);
+                    if(method.hasOverload())
+                        return method.getReturnInfoProvider();
+                    let argTypes = findArgTypesForCallExpr(source, callExpr);
                     if(argTypes === undefined) return undefined;
-                    return method.getReturnClass(argTypes);
+                    return method.getReturnInfoProvider(argTypes);
                 }
             }
-            let javaMethod = findJavaTypeForExprNode(source, funcExpr) as JavaMethod;
-            if(javaMethod === undefined) return undefined;
-            return javaMethod.getReturnClass();
+            let method = findInfoProviderForExpr(source, funcExpr) as MethodInfoProvider;
+            if(method === undefined) return undefined;
+            return method.getReturnInfoProvider();
         }
 
-        function extractArgTypes(source: tslib.SourceFile, callExpr: tslib.CallExpression) {
+        function findArgTypesForCallExpr(source: tslib.SourceFile, callExpr: tslib.CallExpression) {
             let argTypes: string[] = [];
             for(let i = 0; i < callExpr.arguments.length; ++i) {
                 let arg = callExpr.arguments[i];
-                let typeName = commonTypeToJavaType(source, arg);
+                let typeName = findTargetTypeForCommonType(source, arg);
                 if(typeName === undefined) {
-                    let type = findJavaTypeForExprNode(source, arg);
+                    let type = findInfoProviderForExpr(source, arg);
                     if(type === undefined) return undefined;
-                    typeName = type.getTypeName();
+                    typeName = type.getClassName();
                 }
                 argTypes.push(typeName);
             }
             return argTypes;
         }
         
-        function commonTypeToJavaType(source: tslib.SourceFile, node: tslib.Node): string {
+        function findTargetTypeForCommonType(source: tslib.SourceFile, node: tslib.Node): string {
             switch(node.kind) {
                 case tslib.SyntaxKind.NumericLiteral:
                     return 'int';
@@ -321,8 +333,8 @@ function init(mod: { typescript: typeof tslib }) {
                     ].includes(writeExpr.kind))
                         return undefined;
                     if(typeName !== undefined && typeName.indexOf('Java.Wrapper') === 0)
-                        return findJavaTypeForExprNode(source, writeExpr.getChildAt(2)).getTypeName();
-                    return commonTypeToJavaType(source, writeExpr.getChildAt(2));
+                        return findInfoProviderForExpr(source, writeExpr.getChildAt(2)).getClassName();
+                    return findTargetTypeForCommonType(source, writeExpr.getChildAt(2));
                 default:
                     return undefined;
             }
@@ -373,7 +385,7 @@ function init(mod: { typescript: typeof tslib }) {
             return undefined;
         }
 
-        function getStringLiteral(source: tslib.SourceFile, node: tslib.Node) {
+        function findStringLiteral(source: tslib.SourceFile, node: tslib.Node) {
             let current = node;
             while (true) {
                 switch(current.kind) {
