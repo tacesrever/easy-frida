@@ -2,7 +2,7 @@
 build/
 node_modules/
 package-lock.json
-agent/custom_modules/
+agent/custom/
 
 agent/lasthash
 agent/main.js
