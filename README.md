@@ -9,6 +9,22 @@ you can find some useful(or not) script snippets at `agent/`.
 
 run `npm install` both at easy-frida/ and easy-frida/agent/  
 
+open easy-frida/agent/node_modules/frida-compile/index.js,  
+find function makeCompiler, add process.cwd() to browserify's options:  
+
+    function makeCompiler(entrypoint, cache, options) {
+      const inputs = new Set([ entrypoint ]);
+    
+      const b = browserify(entrypoint, {
+        basedir: process.cwd(),
+        extensions: ['.js', '.json', '.cy', '.ts'],
+        paths: [
+          path.dirname(path.dirname(path.dirname(require.resolve('@babel/runtime-corejs2/package.json')))),
+          process.cwd(), // add process.cwd() here
+        ],
+
+this is for enable config easy-frida/agent/tsconfig.json, to make import path right both in vscode & frida-compile, when our main.ts/main.js can't use relative path, as it is copied from other path to agent/ .
+
 put frida-server at /data/local/tmp/adirf, and chmod it,  
 or edit this.serverDir & this.server hardcoded in index.js  
 
