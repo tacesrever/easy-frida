@@ -530,7 +530,7 @@ class EasyFrida {
         if(this.isInteract) {
             process.stdout.write(this.interactLabels.clear);
         }
-        if(message !== null) console.log(message);
+        console.log(message);
         if(this.isInteract) {
             process.stdout.write(this.interactLabel);
         }

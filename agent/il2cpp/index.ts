@@ -44,6 +44,9 @@ export function dump(addrfile: string, outname: string) {
 };
 
 let cachedImages: Image[] = [];
+/**
+ * enumerate loaded Images.
+ */
 export function enumerateImages() {
     const api = getApi();
     let result: Image[] = [];
@@ -383,7 +386,9 @@ export function fromObject(handle: NativePointer | number): Il2cppObject | null 
     }
     return <Il2cppObject>self;
 }
-
+/**
+ * get il2cpp class warpper by it's image, namespace and name.  
+ */
 export function fromName(
         image: Image | string | NativePointer | number,
         namespace: string | NativePointer,
@@ -478,7 +483,10 @@ let assemblies: any = null;
 export function enumerateAssemblies() {
     if(assemblies === null)
         assemblies = fromFullname("System.AppDomain").get_CurrentDomain().GetAssemblies();
-    const result = [];
+    const result: {
+        assembly: Il2cppObject,
+        name: string
+    }[] = [];
     for(let i = 0; i < assemblies.$arraySize; ++i) {
         const assembly = assemblies[i];
         const assemblyName = assembly.GetName();
