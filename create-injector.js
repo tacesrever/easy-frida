@@ -17,7 +17,7 @@ const config = {
     "target": "esnext",
     "lib": ["esnext"],
     "noEmit": true,
-    "strict": true,
+    "strict": false,
     "esModuleInterop": true,
     "baseUrl": path.join(__dirname, 'agent'),
     "plugins": [{

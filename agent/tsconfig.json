@@ -5,8 +5,8 @@
         "lib": ["esnext"],
         "allowJs": true,
         "noEmit": true,
-        "strict": true,
-        "esModuleInterop": true,
+        "strict": false,
+        "esModuleInterop": false,
         "baseUrl": "./",
         "paths": {
             "*": ["*", "./*"]

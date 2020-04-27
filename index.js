@@ -47,7 +47,7 @@ function compile(fileName) {
     }
 
     fs.copyFileSync(fileName, path.join(agentDir, tmpname));
-    let compileCmd = `frida-compile ${tmpname} -o ../_main.js`;
+    let compileCmd = `frida-compile -xX ${tmpname} -o ../_main.js`;
     console.log("\ncompiling script...");
     try {
         child_process.execSync(compileCmd, {cwd: agentDir});
@@ -61,7 +61,7 @@ function compile(fileName) {
 }
 
 class EasyFrida {
-    constructor(target, location='usb', targetOs='android', remoteAddr=null) {
+    constructor(target, location='usb', targetOs='android', remoteAddr=undefined) {
         this.target = target;
         this.location = location;
         this.targetOs = targetOs;
@@ -80,6 +80,7 @@ class EasyFrida {
             remoteLocal:    "remote (localenv) > "
         }
         this.interactLabel = this.interactLabels.local;
+        this.scopeLevel = 0;
         
         switch(location) {
             case 'usb':
@@ -158,13 +159,18 @@ class EasyFrida {
     
     async inject(file = this.scriptfile, target = this.target, enableChildGating) {
         this.scriptfile = file;
+        let attached = true;
         await this.attach(target, enableChildGating).catch( async (e) => {
-            console.log("attach Error:", e.message);
-            await this.run(target, enableChildGating);
+            if(e.message === "Process not found")
+                await this.run(target, enableChildGating);
+            else {
+                console.log("attach Error:", e.message);
+                attached = false;
+            }
         });
-        this.load(file)
-            .catch( e => {console.log(e);})
-            .then( () => {this.resume();});
+        if(attached) {
+            this.load(file).catch( e => console.log(e) ).then( () => this.resume() );
+        }
     }
     
     resume(pid) {
@@ -221,8 +227,7 @@ class EasyFrida {
         });
         const source = fs.readFileSync(require.resolve("./_main.js"), "utf-8");
         
-        // const script = await curProc.session.createScript(source, {runtime: 'v8'});
-        const script = await curProc.session.createScript(source);
+        const script = await curProc.session.createScript(source, {runtime: 'v8'});
         script.logHandler = this._onConsoleMessage.bind(this);
         script.message.connect(this._onMessage.bind(this));
         // script.destroyed.connect();
@@ -341,6 +346,7 @@ class EasyFrida {
                 const mGroups = [];
                 
                 function replCallback(e, names) {
+                    try {names = JSON.parse(names)} catch {};
                     if(names instanceof Array)
                         mGroups.push(names);
                     if (!expr || expr === 'j:') {
@@ -460,7 +466,11 @@ class EasyFrida {
     
     async _setupDevice() {
         if(this.device === null) {
-            this.device = await this.getDevice({ timeout: null });
+            if(this.location === 'remote') {
+                this.device = await frida.getDeviceManager().addRemoteDevice(this.remoteAddr);
+            } else {
+                this.device = await this.getDevice({ timeout: null });
+            }
             this.device.childAdded.connect(this._onChild);
             this.device.processCrashed.connect(this._onCrashed);
         }
@@ -476,24 +486,16 @@ class EasyFrida {
                         resolve();
                     });
                 });
+            } else {
+                resolve();
             }
         });
-        
     }
     
     async stopServer() {
         // OSDEP
         if (this.location == 'usb') {
             await adb_shell(`pkill -f ${this.server}`, 1);
-        }
-    }
-    
-    connect() {
-        // OSDEP
-        if(this.location === 'usb' && this.remoteAddr) {
-            child_process.execSync(`adb connect ${this.remoteAddr}`);
-            // sometimes first try will fail.
-            child_process.execSync(`adb connect ${this.remoteAddr}`);
         }
     }
     
@@ -528,7 +530,7 @@ class EasyFrida {
         if(this.isInteract) {
             process.stdout.write(this.interactLabels.clear);
         }
-        console.log(message);
+        if(message !== null) console.log(message);
         if(this.isInteract) {
             process.stdout.write(this.interactLabel);
         }
@@ -545,12 +547,16 @@ class EasyFrida {
                 switch(payload.type) {
                     case "scope":
                         if(payload.act == "enter") {
+                            this.scopeLevel += 1;
                             this.interactLabel = this.interactLabels.remoteLocal;
                             if(this.repl) this.repl.setPrompt(this.interactLabel);
                         }
                         else if (payload.act == "quit") {
-                            this.interactLabel = this.interactLabels.remote;
-                            if(this.repl) this.repl.setPrompt(this.interactLabel);
+                            this.scopeLevel -= 1;
+                            if(this.scopeLevel === 0) {
+                                this.interactLabel = this.interactLabels.remote;
+                                if(this.repl) this.repl.setPrompt(this.interactLabel);
+                            }
                         }
                         else if (payload.act == "result") {
                             this._interactCallback(null, payload.result);
@@ -564,9 +570,7 @@ class EasyFrida {
                 }
                 break;
             case frida.MessageType.Error:
-                console.log("");
-                console.log(message.description);
-                console.log(message.stack);
+                this._onLog(message.stack);
                 break;
             default:
         }

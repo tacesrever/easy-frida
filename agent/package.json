@@ -5,8 +5,8 @@
   "main": "main.ts",
   "author": "tacesrever",
   "devDependencies": {
-    "@types/frida-gum": "^15.1.0",
-    "@types/node": "^13.9.2",
+    "@types/frida-gum": "^15.2.0",
+    "@types/node": "^13.13.4",
     "frida-compile": "^9.3.0"
   },
   "dependencies": {}

@@ -8,6 +8,7 @@ you can find some useful(or not) script snippets at `agent/`.
 ## if you wanna have a try after clone
 
 run `npm install` both at easy-frida/ and easy-frida/agent/  
+run `npm install -g` at easy-frida/  
 
 open easy-frida/agent/node_modules/frida-compile/index.js,  
 find function makeCompiler, add process.cwd() to browserify's options:  
@@ -32,11 +33,6 @@ for use of avoidConflict in android.js,  modify & removeModify in index.js:
 
 inject frida-gadget to android's systemlib by lief (I'm using libqti_performance.so)  
 (this systemlib must not load by zygote but do load by every real app  
-or zygote will crash on reading tmpdir.)  
+or zygote will crash on reading tmpdir when selinux is enabled.)  
 config frida-gadget to ScriptDirectory /data/local/tmp/fscripts/  
 or edit scriptDir hardcoded in index.js at function modify & removeModify  
-
-for use of android.libraryOnLoad in android.js:  
-pull /system/bin/linker & /system/bin/linker64,  
-find __dl__ZN6soinfo17call_constructorsEv's address (using ida etc.)  
-edit hardcoded addresses in android.js at function libraryOnLoad.  
