@@ -224,13 +224,13 @@ class Il2cppMethod extends Function {
             const result = api.il2cpp_runtime_invoke(
                     minfo.method, objectPtr, paramsBuffer, il2CppException); 
             const exception = il2CppException.readPointer();
+            if(thread !== null) api.il2cpp_thread_detach(thread);
             if(exception.isNull()) {
                 return fromObject(result);
             }
             console.log(this.name, "exception:");
             api.il2cpp_format_exception(exception, exceptionMessage, 0x1000);
             api.il2cpp_format_stack_trace(exception, exceptionStack, 0x4000);
-            if(thread !== null) api.il2cpp_thread_detach(thread);
             console.log(exceptionMessage.readCString());
             console.log(exceptionStack.readCString());
             return result;
