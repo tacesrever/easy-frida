@@ -2,7 +2,6 @@
 import { getApi } from './api';
 import { makefunction } from '../native';
 import { libraryOnLoad } from '../android';
-import { prototype } from 'stream';
 
 interface Image {
     name: string | null

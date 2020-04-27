@@ -30,7 +30,7 @@ if(typeof disableInteract === "undefined" || disableInteract === false) {\
         try {\
             result = eval(interactCode);\
             if(typeof result === "object")\
-                result = JSON.stringify(eval(interactCode), function(key, value) {\
+                result = JSON.stringify(result, function(key, value) {\
                     if (key !== "" && typeof value === "object" && value !== null) {\
                             if(value.toString !== undefined) return value.toString();\
                             return;\
