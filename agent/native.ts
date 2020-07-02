@@ -1,3 +1,4 @@
+import * as easy_frida from 'easy_frida';
 
 export function showBacktrace(context?: CpuContext) {
     let bt = Thread.backtrace(context, Backtracer.ACCURATE).map(symbolName).join("\n\t");
@@ -109,7 +110,16 @@ export function symbolName(address: number | NativePointer) {
         if(range.file)
             name = range.file.path + name;
     } else if(debugSymbol) {
-        name = address + ' ' + debugSymbol.moduleName + '!' + debugSymbol.name;
+        name = address + ' ' + debugSymbol.moduleName;
+        if(debugSymbol.name !== null) {
+            let symbolBase = DebugSymbol.fromName(debugSymbol.name);
+            let offset = address.sub(symbolBase.address);
+            name += '!' + debugSymbol.name + '+' + offset;
+        }
+        if(debugSymbol.fileName !== null) {
+            const basepos = debugSymbol.fileName.lastIndexOf('/');
+            name += '(' + debugSymbol.fileName.slice(basepos + 1) + ':' + debugSymbol.lineNumber + ')';
+        }
     }
     else {
         name = address.toString();
@@ -309,13 +319,13 @@ export function cprintf(format: string, args: NativePointer[], vaArgIndex = 1, m
     }
     const buffer = Memory.alloc(maxSize);
     const types = ['pointer', 'pointer', 'string'];
-    const vsnprintfArgs = [ buffer, ptr(maxSize), format ];
+    const snprintfArgs = [ buffer, ptr(maxSize), format ];
     for(let i = 0; i < count; ++i) {
         types.push('pointer');
-        vsnprintfArgs.push(args[vaArgIndex + i]);
+        snprintfArgs.push(args[vaArgIndex + i]);
     }
-    const vsnprintf = makefunction(null, 'vsnprintf', 'int', types);
-    vsnprintf.apply(vsnprintfArgs);
+    const snprintf = makefunction(null, 'snprintf', 'int', types);
+    snprintf(...snprintfArgs);
     return buffer.readUtf8String();
 };
 
@@ -325,4 +335,98 @@ export function showThreads() {
         let t = threads[idx];
         console.log(`[${t.id}:${t.state}] pc:${symbolName(t.context.pc)}`);
     }
+}
+
+export function showCpuContext(context: CpuContext) {
+    try {
+        const inst = Instruction.parse(context.pc);
+        console.log(symbolName(context.pc), inst.mnemonic, inst.opStr);
+    } catch {
+        console.log(symbolName(context.pc), "??");
+    }
+    let i = 0, regsinfo = "";
+    for(const regname of Object.getOwnPropertyNames(context)) {
+        let regnum = parseInt(context[regname]).toString(16);
+        let padn = Process.pointerSize*2 - regnum.length;
+        if(padn > 0) regnum = (new Array(padn + 1)).join('0') + regnum;
+        regsinfo += regname + "=" + regnum + "\t";
+        if(i%4 === 0) regsinfo += "\n";
+        i++;
+    }
+    console.log(regsinfo);
+}
+
+function execHandler(context: CpuContext) {
+    send({"type": "scope", "act": "enter"});
+    let command: string, result: any;
+    showCpuContext(context);
+    while(true) {
+        let codeRecv = recv("scope", function(message) {
+            command = message["code"];
+        });
+        codeRecv.wait();
+        if(command === "c") {
+            Stalker.unfollow();
+            break;
+        }
+        if(command === "ni") {
+            break;
+        }
+        try {
+            result = eval(command);
+            if(typeof result === "object")
+                result = JSON.stringify(result, function(key, value) {
+                    if (key !== "" && typeof value === "object" && value !== null) {
+                            if(value.toString !== undefined) return value.toString();
+                            return;
+                    }
+                    return value;
+                }, " ");
+        } catch(e) {
+            result = e.stack;
+        }
+        send({"type":"scope", "act":"result", "result":result});
+    }
+    send({"type":"scope", "act":"quit"});
+}
+const excludeModules = ['libc.so', 'frida-agent-64.so', 'frida-agent-32.so', 'libadirf.so'];
+function setupStalker() {
+    while(excludeModules.length > 0) {
+        const name = excludeModules.pop();
+        const module = Process.findModuleByName(name);
+        if(module === null) continue;
+        Stalker.exclude(module);
+    }
+}
+
+export function traceExecByStalkerAt(addr: NativePointer) {
+    setupStalker();
+    Interceptor.attach(addr, function() {
+        let startTrace = false;
+        Stalker.follow(Process.getCurrentThreadId(), {
+            transform: function(iterator) {
+                let inst = iterator.next();
+                if(addr.equals(inst.address)) startTrace = true;
+                while(inst !== null) {
+                    if(startTrace) iterator.putCallout(execHandler);
+                    iterator.keep();
+                    inst = iterator.next();
+                }
+            }
+        });
+    });
+}
+
+
+
+export function showNativeExecption() {
+    Process.setExceptionHandler(function(details) {
+        if(details.memory) { 
+            console.log(details.type, details.memory.operation, details.memory.address, "at", details.address);
+        }
+        else {
+            console.log(details.type, "at", details.address);
+        } 
+        showCpuContext(details.context);
+    });
 }

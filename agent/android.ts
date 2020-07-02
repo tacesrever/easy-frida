@@ -103,13 +103,12 @@ const nullCallBack = new NativeCallback(() => 0, 'int', []);
 /**
  * when gadget already injected and use server, this should be called.
  */
-export function avoidConflict(gadgetName = "libadirf.so", loaderName = "libqti_performance.so") {
+export function avoidConflict(gadgetName = "libadirf.so") {
     if(easy_frida.isServer) {
-        libraryOnLoad(loaderName, function(inited) {
+        libraryOnLoad(gadgetName, function(inited) {
+            if(inited) return;
             const initseg = findElfSegment(gadgetName, ".init_array");
-            if(initseg === null) {
-                return;
-            }
+            if(initseg === null) return;
             Memory.protect(initseg.addr, initseg.size, 'rw-');
             for(let offset = 0; offset < initseg.size; offset += Process.pointerSize) {
                 let fptr = initseg.addr.add(offset).readPointer();

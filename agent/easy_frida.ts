@@ -76,16 +76,16 @@ switch(Process.platform) {
 }
 if(Process.findModuleByName(agentName) !== null) isServer = true;
 
-const global_eval = eval;
+const globalEval = eval;
 rpc.exports.exec = (code: string) => {
     return new Promise(resolve => {
         let result;
         if (code.substr(0, 2) !== "j:") {
-            try { result = global_eval(code) } catch(e) { result = e.stack }
+            try { result = globalEval(code) } catch(e) { result = e.stack }
             resolve(result);
         } else {
             setImmediate(() => { Java.perform(function () {
-                try { result = global_eval(code.substr(2)) } catch(e) { result = e.stack }
+                try { result = globalEval(code.substr(2)) } catch(e) { result = e.stack }
                 resolve(result);
             })});
         }

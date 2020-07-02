@@ -52,7 +52,8 @@ function compile(fileName) {
     try {
         child_process.execSync(compileCmd, {cwd: agentDir});
     } catch(e) {
-        console.log(e);
+        console.log(String(e.stdout));
+        console.log(String(e.stderr));
         return false;
     }
     fs.writeFileSync(path.join(agentDir, "lasthash"), hash);
@@ -97,7 +98,7 @@ class EasyFrida {
         switch(targetOs) {
             case 'android':
                 this.serverDir = '/data/local/tmp/';
-                this.server = 'adirf';
+                this.server = 'adirfd';
         }
     }
     
@@ -479,9 +480,11 @@ class EasyFrida {
     startServer() {
         return new Promise((resolve) => {
             if (this.location == 'usb') {
-                this.device.getProcess('adirf').then(proc => {
+                this.device.getProcess(this.server).then(proc => {
                     resolve();
-                }).catch( () => {
+                }).catch( e => {
+                    console.log(e.message);
+                    return;
                     adb_shell(`${this.serverDir}${this.server} -D`, 1).then(r => {
                         resolve();
                     });
@@ -524,7 +527,7 @@ class EasyFrida {
                 
             }
             else {
-                fs.writeFileSync(this.logfile, message.toString(), { flag: 'a' });
+                fs.writeFileSync(this.logfile, message.toString() + "\n", { flag: 'a' });
             }
         }
         if(this.isInteract) {

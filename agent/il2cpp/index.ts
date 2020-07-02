@@ -443,13 +443,7 @@ export function perform(callback: () => void) {
         called = true;
         api.il2cpp_thread_detach(thread);
     }
-    try {
-        callFn();
-    } catch {
-        libraryOnLoad("libil2cpp.so", function(inited) {
-            if(inited) setTimeout(callFn, 1000);
-        });
-    }
+    setTimeout(callFn, 10000);
 }
 /**
  * read a .net string, if maxlen seted and str is too long, show ... after maxlen.
