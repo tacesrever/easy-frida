@@ -1,5 +1,3 @@
-
-
 ## install  
 
     $ git clone https://github.com/tacesrever/easy-frida.git
@@ -12,8 +10,4 @@
 
 ## use   
 
-see `scripts/create-injector.js`  
-
-
-
-
+run`create-injector` at empty directory or see `scripts/create-injector.js`  
