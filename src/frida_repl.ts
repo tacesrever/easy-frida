@@ -1,0 +1,197 @@
+import repl = require('repl');
+
+const LocalEvalPrefix = '!';
+const JavaPerformPrefix = 'j:';
+const SimpleExpressionRE = /.*\.?$/;
+
+declare interface EvalCallback {
+    (err: Error, result?: any): void
+}
+
+export class FridaRepl {
+    useLocalEval = true
+    repl: repl.REPLServer
+    constructor(private localEval: (code: string) => any, private remoteEval: (code: string) => Promise<any>, private onResult: (result: any) => void) {
+    }
+
+    start() {
+        this.repl = repl.start({
+            ignoreUndefined: true,
+            eval: this.replEval
+        });
+        
+        const localCompleter = this.repl.completer;
+        Object.defineProperty(this.repl, "completer", {
+            value: (line: string, callback: EvalCallback) => {
+                if(this.useLocalEval) {
+                    localCompleter(line, callback);
+                }
+                else if (line.startsWith(LocalEvalPrefix)) {
+                        // localCompleter will call eval('try { expr } catch {}')
+                        // to get local object, when our interactLabel isn't local.
+                        // so force local here.
+                        this.useLocalEval = true;
+                        localCompleter(line.substr(LocalEvalPrefix.length), (r, groups) => {
+                            this.useLocalEval = false;
+                            callback(r, groups);
+                        });
+                    }
+                else {
+                    this.remoteCompleter(line, callback);
+                }
+            }
+        });
+
+        return this.repl;
+    }
+
+    private replEval = (code: string, context: any, filename: string, originalCallback: EvalCallback) => {
+        
+        const callback = originalCallback.name === 'finish' ? this.evalCallback : originalCallback;
+
+        code = code.trim();
+        if(code === "") {
+            this.onResult("");
+            return;
+        }
+
+        try {
+            if(this.useLocalEval) {
+                callback(null, this.localEval(code));
+                return;
+            }
+            if(code.startsWith(LocalEvalPrefix)) {
+                callback(null, this.localEval(code.substr(LocalEvalPrefix.length)));
+                return;
+            }
+            
+            this.remoteEval(code).then(result => {
+                callback(null, result);
+            });
+        }
+        catch(e) {
+            if (e.name == 'SyntaxError' && /^(Unexpected end of input|Unexpected token)/.test(e.message)) {
+                return originalCallback(new repl.Recoverable(e));
+            }
+            callback(e);
+        }
+    }
+
+    // ref: https://github.com/nodejs/node/blob/master/lib/repl.js function complete
+    private remoteCompleter = (line: string, callback: EvalCallback) => {
+        let groups = [];
+        let completeOn: string, expr: string, filter: string, match: RegExpMatchArray;
+        line = line.trimLeft();
+        if (line.length === 0 || /\w|\.|\$/.test(line[line.length - 1])) {
+            match = SimpleExpressionRE.exec(line);
+            if (line.length !== 0 && !match) {
+                groupsLoaded();
+                return;
+            }
+            
+            completeOn = (match ? match[0] : '');
+            if (line.length === 0) {
+                filter = '';
+                expr = '';
+            } else if (line[line.length - 1] === '.') {
+                filter = '';
+                expr = match[0].slice(0, match[0].length - 1);
+            } else {
+                const bits = match[0].split('.');
+                filter = bits.pop();
+                expr = bits.join('.');
+            }
+            if (!expr || expr === JavaPerformPrefix) {
+                this.replEval(buildGetKeysCode("global"), null, null, replCallback);
+                return;
+            }
+            this.replEval(buildGetKeysCode(expr), null, null, replCallback);
+            return;
+        }
+        groupsLoaded();
+
+        function replCallback(e: Error, names: any) {
+            try {names = JSON.parse(names)} catch {};
+            const mGroups = [];
+            if(names instanceof Array)
+                mGroups.push(names);
+            if (!expr || expr === JavaPerformPrefix) {
+                groups = mGroups;
+                groupsLoaded();
+                return;
+            }
+            if (mGroups.length) {
+                for (let i = 0; i < mGroups.length; i++) {
+                    groups.push(mGroups[i].map( member => `${expr}.${member}`));
+                }
+                if (filter) {
+                    filter = `${expr}.${filter}`;
+                }
+            }
+            groupsLoaded();
+        }
+
+        function groupsLoaded() {
+            // Filter, sort (within each group), uniq and merge the completion groups.
+            if (groups.length && filter) {
+                const newGroups = [];
+                for (let i = 0; i < groups.length; i++) {
+                    if(groups[i] instanceof Array) {
+                        let group = groups[i].filter((elem) => elem.indexOf(filter) === 0);
+                        if (group.length) {
+                            newGroups.push(group);
+                        }
+                    }
+                }
+                groups = newGroups;
+            }
+            
+            const completions = [];
+            // Unique completions across all groups.
+            const uniqueSet = new Set(['']);
+            // Completion group 0 is the "closest" (least far up the inheritance
+            // chain) so we put its completions last: to be closest in the REPL.
+            for (const group of groups) {
+                group.sort((a, b) => (b > a ? 1 : -1));
+                const setSize = uniqueSet.size;
+                for (const entry of group) {
+                    if (!uniqueSet.has(entry)) {
+                        completions.unshift(entry);
+                        uniqueSet.add(entry);
+                    }
+                }
+                // Add a separator between groups.
+                if (uniqueSet.size !== setSize) {
+                    completions.unshift('');
+                }
+            }
+    
+            // Remove obsolete group entry, if present.
+            if (completions[0] === '') {
+                completions.shift();
+            }
+            callback(null, [completions, completeOn]);
+        }
+
+        function buildGetKeysCode(expr: string) {
+            let getKeysCode = "";
+            if(expr.startsWith(JavaPerformPrefix)) {
+                getKeysCode = JavaPerformPrefix;
+                expr = expr.substr(JavaPerformPrefix.length);
+            }
+            getKeysCode += `var _replobj = ${expr};`
+            getKeysCode += "Object.getOwnPropertyNames(_replobj)";
+            getKeysCode += ".concat(Object.getOwnPropertyNames(_replobj.__proto__))";
+            return getKeysCode;
+        }
+    }
+
+    private evalCallback = (err: Error, result?: any) => {
+        if(err !== null) {
+            this.onResult(err.stack);
+        }
+        if(result !== undefined) {
+            this.onResult(result);
+        }
+    }
+}

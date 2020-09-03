@@ -1,4 +1,6 @@
 
+import { libraryOnLoad } from '../android';
+
 const apiFunctions: {
     [index: string]: [string, string[]]
 } = {
@@ -126,7 +128,7 @@ export function getApi() {
         const funcType = apiFunctions[fname];
         if(address) tempApi[fname] = new NativeFunction(address, funcType[0], funcType[1]) as any;
         else {
-            console.log(`[E] function ${fname} not found`);
+            console.log(`[E] Can't found export function ${fname} in libil2cpp.so`);
         }
     }
     cachedApi = tempApi;

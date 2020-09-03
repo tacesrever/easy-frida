@@ -1,5 +1,5 @@
 
-import * as easy_frida from './easy_frida';
+import { isServer } from './index';
 import { cprintf, makefunction, readStdString } from './native';
 import { findElfSegment } from './linux';
 
@@ -104,7 +104,7 @@ const nullCallBack = new NativeCallback(() => 0, 'int', []);
  * when gadget already injected and use server, this should be called.
  */
 export function avoidConflict(gadgetName = "libadirf.so") {
-    if(easy_frida.isServer) {
+    if(isServer) {
         libraryOnLoad(gadgetName, function(inited) {
             if(inited) return;
             const initseg = findElfSegment(gadgetName, ".init_array");

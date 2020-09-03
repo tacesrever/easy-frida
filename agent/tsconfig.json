@@ -1,15 +1,16 @@
-  
 {
     "compilerOptions": {
         "target": "esnext",
         "lib": ["esnext"],
-        "allowJs": true,
-        "noEmit": true,
         "strict": false,
+        "module": "CommonJS",
+        "moduleResolution": "node",
+        "sourceMap": true,
+        "declaration": true,
         "esModuleInterop": true,
-        "baseUrl": "./",
-        "paths": {
-            "*": ["*", "./*"]
-        }
-    }
+        "outDir": "dist/"
+    },
+    "include": [
+        "**/*.ts"
+    ]
 }
