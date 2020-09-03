@@ -1,11 +1,5 @@
-
+agent/jsconfig.json
 build/
 node_modules/
 package-lock.json
-agent/custom/
-
-agent/lasthash
-agent/main.js
-agent/main.ts
-agent/jsconfig.json
-_main.js
+agent/**/custom/
