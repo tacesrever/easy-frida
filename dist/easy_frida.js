@@ -119,8 +119,6 @@ class EasyFrida {
             this.log(crash.parameters);
         };
         this.log = (message) => {
-            if (message === undefined)
-                debugger;
             if (this.logFile !== undefined) {
                 fs.writeFileSync(this.logFile, util_1.format(message) + "\n", { flag: 'a+' });
             }

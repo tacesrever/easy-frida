@@ -329,7 +329,6 @@ export default class EasyFrida {
     }
 
     private log = (message: any) => {
-        if(message === undefined) debugger;
         if(this.logFile !== undefined) {
                 fs.writeFileSync(this.logFile, format(message) + "\n", { flag: 'a+' });
         }
