@@ -1,12 +1,13 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.dumplib = exports.heapSearch = exports.enumerateRanges = exports.findElfSegment = exports.ELFHeader = exports.readFile = void 0;
 const native_1 = require("./native");
 function readFile(filePath) {
-    const fopen = native_1.makefunction(null, "fopen", 'pointer', ['string', 'string']);
-    const fseek = native_1.makefunction(null, "fseek", 'int', ['pointer', 'int', 'int']);
-    const ftell = native_1.makefunction(null, "ftell", 'int', ['pointer']);
-    const fread = native_1.makefunction(null, "fread", 'uint', ['pointer', 'uint', 'uint', 'pointer']);
-    const fclose = native_1.makefunction(null, "fclose", 'int', ['pointer']);
+    const fopen = native_1.importfunc(null, "fopen", 'pointer', ['string', 'string']);
+    const fseek = native_1.importfunc(null, "fseek", 'int', ['pointer', 'int', 'int']);
+    const ftell = native_1.importfunc(null, "ftell", 'int', ['pointer']);
+    const fread = native_1.importfunc(null, "fread", 'uint', ['pointer', 'uint', 'uint', 'pointer']);
+    const fclose = native_1.importfunc(null, "fclose", 'int', ['pointer']);
     const fd = fopen(filePath, 'rb');
     fseek(fd, 0, 2);
     const size = ftell(fd);
@@ -150,9 +151,9 @@ function findElfSegment(moduleOrName, segName) {
 }
 exports.findElfSegment = findElfSegment;
 function enumerateRanges() {
-    const fopen = native_1.makefunction(null, "fopen", 'pointer', ['string', 'string']);
-    const fgets = native_1.makefunction(null, "fgets", 'pointer', ['pointer', 'int', 'pointer']);
-    const fclose = native_1.makefunction(null, "fclose", 'int', ['pointer']);
+    const fopen = native_1.importfunc(null, "fopen", 'pointer', ['string', 'string']);
+    const fgets = native_1.importfunc(null, "fgets", 'pointer', ['pointer', 'int', 'pointer']);
+    const fclose = native_1.importfunc(null, "fclose", 'int', ['pointer']);
     let mapfile = fopen("/proc/self/maps", "r");
     let buffer = Memory.alloc(2048);
     let r = fgets(buffer, 2048, mapfile);

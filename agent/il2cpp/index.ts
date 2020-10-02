@@ -1,6 +1,6 @@
 
 import { getApi } from './api';
-import { makefunction } from '../native';
+import { importfunc } from '../native';
 
 interface Image {
     name: string | null
@@ -28,8 +28,8 @@ interface Il2cppObject extends Il2cppClass {
 export function dump(addrfile: string, outname: string) {
     const libparser = Module.load('/data/local/tmp/libparser.so');
     
-    const init = makefunction('libparser.so', 'init', 'pointer', ['string']);
-    const dumpAll = makefunction('libparser.so', 'dumpAll', 'pointer', ['string', 'string']);
+    const init = importfunc('libparser.so', 'init', 'pointer', ['string']);
+    const dumpAll = importfunc('libparser.so', 'dumpAll', 'pointer', ['string', 'string']);
     
     const parser_log = new NativeCallback(function() {
         console.log(arguments[0].readCString());

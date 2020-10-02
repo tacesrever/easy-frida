@@ -13,6 +13,7 @@ interface libCallback {
  * callback(false) when .init_array funcs not called,
  * callback(true) after.
  */
+export declare function showlibevents(stop?: boolean): void;
 export declare function libraryOnLoad(libname: string, callback: libCallback): void;
 /**
  * when gadget already injected and use server, this should be called.

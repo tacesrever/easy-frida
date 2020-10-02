@@ -1,5 +1,7 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.showNativeExecption = exports.traceExecBlockByStalkerAt = exports.showCpuContext = exports.showThread = exports.showThreads = exports.cprintf = exports.readStdString = exports.traceFunction = exports.traceCalled = exports.dumpMem = exports.showAddrInfo = exports.symbolName = exports.setName = exports.importfunc = exports.d = exports.showBacktrace = void 0;
+const _1 = require(".");
 function showBacktrace(context) {
     let bt = Thread.backtrace(context, Backtracer.ACCURATE).map(symbolName).join("\n\t");
     console.log('\t' + bt);
@@ -29,7 +31,7 @@ exports.d = d;
  * warpper for NativeFunction, add 'string' type.
  * slower, just for convenience.
  */
-function makefunction(libnameOrFuncaddr, funcName, retType, argTypes, abiOrOptions) {
+function importfunc(libnameOrFuncaddr, funcName, retType, argTypes, abiOrOptions) {
     let funcAddress;
     const realArgTypes = [];
     let nativeFunction;
@@ -72,7 +74,7 @@ function makefunction(libnameOrFuncaddr, funcName, retType, argTypes, abiOrOptio
         return retVal;
     };
 }
-exports.makefunction = makefunction;
+exports.importfunc = importfunc;
 let customNames = [];
 /**
  * set custom debug symbol name to range.
@@ -101,14 +103,17 @@ function symbolName(address) {
         }
     }
     const debugSymbol = DebugSymbol.fromAddress(address);
+    const module = Process.findModuleByAddress(address);
     const range = Process.findRangeByAddress(address);
-    if (Process.platform !== 'windows' && debugSymbol && range) {
-        name = debugSymbol.toString() + ' (' + range.base + '+' + address.sub(range.base) + ')';
+    if (debugSymbol && range) {
+        name = debugSymbol.moduleName + '!' + debugSymbol.name + ' (' + range.base + '+' + address.sub(range.base) + ')';
     }
     else if (range) {
         name = '(' + range.base + '+' + address.sub(range.base) + ')';
         if (range.file)
             name = range.file.path + name;
+        else if (module)
+            name = module.name + name;
     }
     else if (debugSymbol) {
         name = address + ' ' + debugSymbol.moduleName;
@@ -173,6 +178,8 @@ function readNativeArg(handle, name) {
             return handle.toInt32();
         case 's': //String
             return handle.readCString();
+        case 'u':
+            return handle.readUtf16String();
         case 'd': //Data
             if (!handle.isNull()) {
                 if (parseInt(name.slice(1)))
@@ -328,26 +335,52 @@ function cprintf(format, args, vaArgIndex = 1, maxSize = 0x1000) {
         types.push('pointer');
         snprintfArgs.push(args[vaArgIndex + i]);
     }
-    const snprintf = makefunction(null, 'snprintf', 'int', types);
+    const snprintf = importfunc(null, 'snprintf', 'int', types);
     snprintf(...snprintfArgs);
     return buffer.readUtf8String();
 }
 exports.cprintf = cprintf;
 ;
 function showThreads() {
+    const pthread_getname_np = importfunc(null, "pthread_getname_np", 'int', ['pointer', 'pointer']);
     let threads = Process.enumerateThreads();
+    let buf = Memory.alloc(0x100);
     for (let idx in threads) {
         let t = threads[idx];
+        try {
+            let ret = pthread_getname_np(ptr(t.id), buf);
+            if (ret === 0) {
+                console.log(`[${t.id}-${buf.readCString()}:${t.state}] pc:${symbolName(t.context.pc)}`);
+                continue;
+            }
+        }
+        catch (e) { }
         console.log(`[${t.id}:${t.state}] pc:${symbolName(t.context.pc)}`);
     }
 }
 exports.showThreads = showThreads;
+function showThread(tid) {
+    const pthread_getname_np = importfunc(null, "pthread_getname_np", 'int', ['pointer', 'pointer']);
+    let thread = Process.enumerateThreads().filter(t => t.id === tid)[0];
+    if (thread) {
+        let buf = Memory.alloc(0x100);
+        let threadName = tid.toString();
+        let ret = pthread_getname_np(ptr(thread.id), buf);
+        if (ret === 0)
+            threadName = buf.readCString();
+        console.log("thread name:", threadName);
+        showCpuContext(thread.context);
+        console.log("backtrace:");
+        showBacktrace(thread.context);
+    }
+}
+exports.showThread = showThread;
 function showCpuContext(context) {
     try {
         const inst = Instruction.parse(context.pc);
         console.log(symbolName(context.pc), inst.mnemonic, inst.opStr);
     }
-    catch {
+    catch (_a) {
         console.log(symbolName(context.pc), "??");
     }
     let i = 0, regsinfo = "";
@@ -364,72 +397,55 @@ function showCpuContext(context) {
     console.log(regsinfo);
 }
 exports.showCpuContext = showCpuContext;
-function execHandler(context) {
-    send({ "type": "scope", "act": "enter" });
-    let command, result;
-    showCpuContext(context);
-    while (true) {
-        let codeRecv = recv("scope", function (message) {
-            command = message["code"];
-        });
-        codeRecv.wait();
-        if (command === "c") {
-            Stalker.unfollow();
-            break;
-        }
-        if (command === "ni") {
-            break;
-        }
-        try {
-            result = eval(command);
-            if (typeof result === "object")
-                result = JSON.stringify(result, function (key, value) {
-                    if (key !== "" && typeof value === "object" && value !== null) {
-                        if (value.toString !== undefined)
-                            return value.toString();
+function traceExecBlockByStalkerAt(addr) {
+    const compiledBlocks = {};
+    const once = Interceptor.attach(addr, function () {
+        once.detach();
+        Interceptor.flush();
+        let trace = false;
+        const tid = Process.getCurrentThreadId();
+        const targetBase = Process.findRangeByAddress(addr).base;
+        Stalker.follow(tid, {
+            transform: function (iterator) {
+                const startInst = iterator.next();
+                let inst = startInst;
+                if (!trace) {
+                    const range = Process.findRangeByAddress(inst.address);
+                    if (range && targetBase.equals(range.base))
+                        trace = true;
+                    else {
+                        while (inst !== null) {
+                            iterator.keep();
+                            inst = iterator.next();
+                        }
                         return;
                     }
-                    return value;
-                }, " ");
-        }
-        catch (e) {
-            result = e.stack;
-        }
-        send({ "type": "scope", "act": "result", "result": result });
-    }
-    send({ "type": "scope", "act": "quit" });
-}
-const excludeModules = ['libc.so', 'frida-agent-64.so', 'frida-agent-32.so', 'libadirf.so'];
-function setupStalker() {
-    while (excludeModules.length > 0) {
-        const name = excludeModules.pop();
-        const module = Process.findModuleByName(name);
-        if (module === null)
-            continue;
-        Stalker.exclude(module);
-    }
-}
-function traceExecByStalkerAt(addr) {
-    setupStalker();
-    Interceptor.attach(addr, function () {
-        let startTrace = false;
-        Stalker.follow(Process.getCurrentThreadId(), {
-            transform: function (iterator) {
-                let inst = iterator.next();
-                if (addr.equals(inst.address))
-                    startTrace = true;
+                }
+                const blockId = startInst.address.toString();
+                compiledBlocks[blockId] = [];
+                iterator.putCallout(handleBlock);
                 while (inst !== null) {
-                    if (startTrace)
-                        iterator.putCallout(execHandler);
+                    compiledBlocks[blockId].push(symbolName(inst.address) + ' ' + inst.mnemonic + ' ' + inst.opStr);
                     iterator.keep();
                     inst = iterator.next();
                 }
             }
         });
+        let shouldBreak = (context) => true;
+        let shouldShow = (context) => true;
+        function handleBlock(context) {
+            if (shouldShow(context)) {
+                showCpuContext(context);
+                const blockId = context.pc.toString();
+                console.log(compiledBlocks[blockId].join('\n'));
+            }
+            if (shouldBreak(context))
+                eval(_1.interact);
+        }
     });
 }
-exports.traceExecByStalkerAt = traceExecByStalkerAt;
-function showNativeExecption() {
+exports.traceExecBlockByStalkerAt = traceExecBlockByStalkerAt;
+function showNativeExecption(handler) {
     Process.setExceptionHandler(function (details) {
         if (details.memory) {
             console.log(details.type, details.memory.operation, details.memory.address, "at", details.address);
@@ -438,6 +454,8 @@ function showNativeExecption() {
             console.log(details.type, "at", details.address);
         }
         showCpuContext(details.context);
+        if (handler)
+            return handler(details);
     });
 }
 exports.showNativeExecption = showNativeExecption;

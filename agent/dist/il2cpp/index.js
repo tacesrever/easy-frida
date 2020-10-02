@@ -1,5 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.enumerateTypes = exports.enumerateAssemblies = exports.newString = exports.readString = exports.perform = exports.fromFullname = exports.fromName = exports.fromObject = exports.findImageByName = exports.enumerateImages = exports.dump = void 0;
 const api_1 = require("./api");
 const native_1 = require("../native");
 ;
@@ -9,8 +10,8 @@ const native_1 = require("../native");
  */
 function dump(addrfile, outname) {
     const libparser = Module.load('/data/local/tmp/libparser.so');
-    const init = native_1.makefunction('libparser.so', 'init', 'pointer', ['string']);
-    const dumpAll = native_1.makefunction('libparser.so', 'dumpAll', 'pointer', ['string', 'string']);
+    const init = native_1.importfunc('libparser.so', 'init', 'pointer', ['string']);
+    const dumpAll = native_1.importfunc('libparser.so', 'dumpAll', 'pointer', ['string', 'string']);
     const parser_log = new NativeCallback(function () {
         console.log(arguments[0].readCString());
     }, 'void', ['pointer']);

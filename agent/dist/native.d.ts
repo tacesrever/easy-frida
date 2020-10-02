@@ -9,7 +9,7 @@ export declare function d(address: number | NativePointer, size?: number): void;
  * warpper for NativeFunction, add 'string' type.
  * slower, just for convenience.
  */
-export declare function makefunction(libnameOrFuncaddr: string | NativePointerValue | null, funcName: string, retType: NativeType, argTypes: NativeType[], abiOrOptions?: NativeABI | NativeFunctionOptions): (...args: (string | number | boolean | NativePointer | ObjectWrapper | UInt64 | Int64 | any[])[]) => string | number | boolean | NativePointer | UInt64 | Int64 | any[];
+export declare function importfunc(libnameOrFuncaddr: string | NativePointerValue | null, funcName: string, retType: NativeType, argTypes: NativeType[], abiOrOptions?: NativeABI | NativeFunctionOptions): (...args: (NativeArgumentValue | string)[]) => string | number | boolean | any[] | NativePointer | UInt64 | Int64;
 /**
  * set custom debug symbol name to range.
  * show as name or name+offset.
@@ -42,6 +42,7 @@ export declare function traceFunction(libnameOrFuncaddr: string | NativePointerV
 export declare function readStdString(strHandle: NativePointer): string;
 export declare function cprintf(format: string, args: NativePointer[], vaArgIndex?: number, maxSize?: number): string;
 export declare function showThreads(): void;
+export declare function showThread(tid: number): void;
 export declare function showCpuContext(context: CpuContext): void;
-export declare function traceExecByStalkerAt(addr: NativePointer): void;
-export declare function showNativeExecption(): void;
+export declare function traceExecBlockByStalkerAt(addr: NativePointer): void;
+export declare function showNativeExecption(handler?: ExceptionHandlerCallback): void;

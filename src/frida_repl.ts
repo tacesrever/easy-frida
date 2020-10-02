@@ -187,7 +187,7 @@ export class FridaRepl {
     }
 
     private evalCallback = (err: Error, result?: any) => {
-        if(err !== null) {
+        if(err) {
             this.onResult(err.stack);
         }
         if(result !== undefined) {

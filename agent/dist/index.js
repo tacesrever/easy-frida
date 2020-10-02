@@ -1,5 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.isServer = exports.rpcCall = exports.interact = void 0;
 Object.defineProperty(String.prototype, "toMatchPattern", {
     value: function () {
         let pattern = [];
@@ -12,12 +13,13 @@ Object.defineProperty(String.prototype, "toMatchPattern", {
 exports.interact = '\
 if(typeof disableInteract === "undefined" || disableInteract === false) {\
     global.disableInteract = false;\
-    var interactCode;\
-    var result;\
-    send({"type":"scope", "act":"enter"});\
+    var interactCode, result, eventType = "scope";\
+    if(typeof scopeid !== "undefined") eventType += "-" + scopeid.toString();\
+    else eventType = "scope-tid-" + Process.getCurrentThreadId();\
+    send({"type":eventType, "act":"enter", "pid": Process.id});\
     console.log("[+] Enter local scope, input /q to exit.");\
     while(true) {\
-        var codeRecv = recv("scope", function(message) {\
+        var codeRecv = recv(eventType, function(message) {\
             interactCode = message["code"];\
         });\
         codeRecv.wait();\
@@ -35,9 +37,9 @@ if(typeof disableInteract === "undefined" || disableInteract === false) {\
         } catch(e) {\
             result = e.stack;\
         }\
-        send({"type":"scope", "act":"result", "result":result});\
+        send({"type":eventType, "act":"result", "result":result, "pid": Process.id});\
     }\
-    send({"type":"scope", "act":"quit"});\
+    send({"type":eventType, "act":"quit", "pid": Process.id});\
     console.log("[+] Quit local scope.");\
 }\
 ';

@@ -1,5 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.FridaRepl = void 0;
 const repl = require("repl");
 const LocalEvalPrefix = '!';
 const JavaPerformPrefix = 'j:';
@@ -146,7 +147,7 @@ class FridaRepl {
             }
         };
         this.evalCallback = (err, result) => {
-            if (err !== null) {
+            if (err) {
                 this.onResult(err.stack);
             }
             if (result !== undefined) {

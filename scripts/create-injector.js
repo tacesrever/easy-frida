@@ -16,4 +16,5 @@ if(!fs.existsSync(agentdir)) fs.mkdirSync(agentdir);
 for(const file of files) {
   fs.copyFileSync(path.join(templatedir, file), path.join(outputdir, file));
 }
+child_process.execSync("npm link easy-frida", {cwd: agentdir});
 child_process.execSync("npm link fridalib", {cwd: agentdir});

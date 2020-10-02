@@ -1,5 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.getApi = void 0;
 const apiFunctions = {
     il2cpp_free: ['pointer', ['pointer']],
     il2cpp_domain_get: ['pointer', []],

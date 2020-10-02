@@ -1,6 +1,6 @@
 
-import { isServer } from './index';
-import { cprintf, makefunction, readStdString } from './native';
+import { interact, isServer } from './index';
+import { cprintf, importfunc, readStdString } from './native';
 import { findElfSegment } from './linux';
 
 export function showJavaBacktrace() {
@@ -22,10 +22,11 @@ export function showLogcat(level: number = 255) {
         onEnter: function(args) {
             let msglevel: string | number = args[0].toInt32();
             if(level >= msglevel) {
-                let tag = args[1].readCString();
-                let fmtstr = args[2].readCString() as string;
+                const tid = Process.getCurrentThreadId();
+                const tag = args[1].readCString();
+                const fmtstr = args[2].readCString() as string;
                 if(msglevel < levelstrs.length) msglevel = levelstrs[msglevel];
-                console.log(`[${msglevel} : ${tag}]`, cprintf(fmtstr, args, 3));
+                console.log(`[${tid}-${msglevel}:${tag}]`, cprintf(fmtstr, args, 3));
             }
         }
     });
@@ -45,6 +46,41 @@ let call_constructors: InvocationListener;
  * callback(false) when .init_array funcs not called,  
  * callback(true) after.  
  */
+export function showlibevents(stop = false) {
+    const address = DebugSymbol.getFunctionByName("__dl__ZN6soinfo17call_constructorsEv");
+    let work_around_b_24465209 = true;
+    if (Process.arch == "arm64") work_around_b_24465209 = false;
+    Interceptor.attach(address, {
+        onEnter: function(args) {
+            let soinfo: NativePointer, base: NativePointer;
+            if(Process.arch == "ia32")
+                soinfo = (this.context as Ia32CpuContext).eax;
+            else
+                soinfo = args[0];
+            let libname: string | null;
+            if(work_around_b_24465209) {
+                libname = soinfo.readCString() as string;
+                base = soinfo.add(128 + 3*Process.pointerSize).readPointer();
+            } else if(Process.arch == "arm64") {
+                base = soinfo.add(2*8).readPointer();
+                // link_map_head.l_name
+                libname = soinfo.add(27*8).readPointer().readCString() as string;
+            }
+            else libname = "";
+            const tid = Process.getCurrentThreadId();
+            
+            console.log(`[${tid}] init ${libname} ${base}`);
+            if(stop) eval(interact);
+        },
+        onLeave: function() {
+            if(stop) {
+                console.log("init fin");
+                eval(interact);
+            }
+        }
+    });
+}
+
 export function libraryOnLoad(libname: string, callback: libCallback) {
     monitor_libs.push({libname, callback});
     if(call_constructors !== undefined) return;
@@ -247,24 +283,24 @@ export function showBacktrace(tidOrContext?: number | CpuContext) {
 
         if(Process.arch === 'arm') {
             // Backtrace.Create
-            BacktraceCreate = makefunction("libbacktrace.so", "_ZN9Backtrace6CreateEiiP12BacktraceMap", 
+            BacktraceCreate = importfunc("libbacktrace.so", "_ZN9Backtrace6CreateEiiP12BacktraceMap", 
                     'pointer', ['int', 'int', 'pointer']);
             // BacktraceCurrent.Unwind
-            Unwind = makefunction("libbacktrace.so", "_ZN16BacktraceCurrent6UnwindEjPv", 
+            Unwind = importfunc("libbacktrace.so", "_ZN16BacktraceCurrent6UnwindEjPv", 
                     'bool', ['pointer', 'int', 'pointer']);
             // Backtrace.FormatFrameData
-            FormatFrameData = makefunction("libbacktrace.so", "_ZN9Backtrace15FormatFrameDataEj", 
+            FormatFrameData = importfunc("libbacktrace.so", "_ZN9Backtrace15FormatFrameDataEj", 
                 'pointer', ['pointer', 'pointer', 'int']);
         }
         else if(Process.arch === 'arm64') {
             // Backtrace.Create
-            BacktraceCreate = makefunction("libbacktrace.so", "_ZN9Backtrace6CreateEiiP12BacktraceMap", 
+            BacktraceCreate = importfunc("libbacktrace.so", "_ZN9Backtrace6CreateEiiP12BacktraceMap", 
                     'pointer', ['int', 'int', 'pointer']);
             // BacktraceCurrent.Unwind
-            Unwind = makefunction("libbacktrace.so", "_ZN16BacktraceCurrent6UnwindEmPv", 
+            Unwind = importfunc("libbacktrace.so", "_ZN16BacktraceCurrent6UnwindEmPv", 
                     'bool', ['pointer', 'int', 'pointer']);
             // Backtrace.FormatFrameData
-            FormatFrameData = makefunction("libbacktrace.so", "_ZN9Backtrace15FormatFrameDataEm", 
+            FormatFrameData = importfunc("libbacktrace.so", "_ZN9Backtrace15FormatFrameDataEm", 
                 'pointer', ['pointer', 'pointer', 'int']);
         }
     }
@@ -323,8 +359,8 @@ export enum DumpType {
     AnyIntercept
 };
 let _dump_backtrace_to_file: NativeFunction | null = null;
-const open = makefunction("libc.so", "open", 'int', ['string', 'int', 'int']);
-const close = makefunction("libc.so", "close", 'int', ['int']);
+const open = importfunc("libc.so", "open", 'int', ['string', 'int', 'int']);
+const close = importfunc("libc.so", "close", 'int', ['int']);
 /**
  * dump backtrace using libdebuggerd_client.
  */

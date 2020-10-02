@@ -11,10 +11,12 @@ import compiler = require('frida-compile');
 import { FridaRepl } from './frida_repl';
 
 const lock = new AsyncLock();
-
+const sleep = (time: number) => new Promise((resolve) => setTimeout(resolve, time));
 interface FridaProcess {
     session: frida.Session
     script: frida.Script
+    scopelist: string[]
+    scopeid: string
     onDetach: () => void
 }
 
@@ -34,20 +36,23 @@ export default class EasyFrida {
     logFile?: string
     scriptFile?: string
     device?: frida.Device
+    enableChildGating = false
     private curProc: FridaProcess = null
     private procList: FridaProcess[] = []
     private interacting = false
     private fridaRepl: FridaRepl
-    private scopeDepth = 0
+    private scopeCount = 0
     private prompt: string
-    private remoteEvalCallback: (result: any) => void
-    private enableChildGating = false
+    private remoteEvalCallbacks: {
+        [index: string]: (result: any) => void
+    } = {}
+    private watcher: any
     constructor(public target: number | string, public location: 'usb' | 'local' | 'remote', public targetos: 'win' | 'linux' | 'android' | 'ios', public remoteAddr?: string) {
     }
 
-    run(target = this.target, enableChildGating = false): Promise<boolean> {
+    run(target = this.target): Promise<boolean> {
         if(typeof(target) === 'number') {
-            return this.attach(target, enableChildGating);
+            return this.attach(target);
         }
         return new Promise(resolve => {
             this.getDevice()
@@ -56,19 +61,18 @@ export default class EasyFrida {
 
                 device.spawn(target)
                 .then(pid => {
-                    this.attach(pid, enableChildGating).then(resolve);
+                    this.attach(pid).then(resolve);
                 })
                 .catch(e => {
-                    console.log(`[!] Spawn failed: ${e.message}`);
+                    this.log(`[!] Spawn failed: ${e.message}`);
                     resolve(false);
                 })
             })
         });
     }
 
-    attach(target = this.target, enableChildGating = false): Promise<boolean> {
-        this.enableChildGating = enableChildGating;
-        return new Promise(resolve => {
+    attach = (target = this.target): Promise<boolean> => {
+        return new Promise((resolve, reject) => {
             this.getDevice().then(device => {
                 device.attach(target).then(sess => {
                     this.attachToSession(sess);
@@ -76,42 +80,46 @@ export default class EasyFrida {
                 })
                 .catch(e => {
                     if(e.message.indexOf('Ambiguous name') >= 0) {
-                        console.log(e.message);
+                        this.log(e.message);
                         const pid = e.message.match(/pid\: (\d+)/)[1];
-                        console.log(`[!] Attaching to ${pid} ...`);
+                        this.log(`[!] Attaching to ${pid} ...`);
                         this.device.attach(parseInt(pid)).then(sess => {
                             this.attachToSession(sess);
                             resolve(true);
                         });
                     }
-                    else throw e;
+                    reject(e);
                 })
             });
         });
     }
 
-    attachOrRun(target = this.target, enableChildGating = false): Promise<boolean> {
+    attachOrRun(target = this.target): Promise<boolean> {
         return new Promise(resolve => {
-            this.attach(target, enableChildGating).then(resolve)
-            .catch(async e => {
+            this.attach(target).then(resolve)
+            .catch(e => {
                 if(e.message === "Process not found")
-                    this.run(target, enableChildGating).then(resolve);
+                    this.run(target).then(resolve);
                 else {
-                    console.log("[!] Attach Error: ", e.message);
+                    this.log("[!] Attach Error: " + e.message);
                     resolve(false);
                 }
             });
         });
     }
 
-    inject(file = this.scriptFile, target = this.target, enableChildGating = false) {
-        return this.attachOrRun(target, enableChildGating).then(attached => {
+    rerun() {
+        this.run().then(() => {this.reload();});
+    }
+
+    inject(file = this.scriptFile, target = this.target) {
+        return this.attachOrRun(target).then(attached => {
             if(attached) {
                 this.compile(file)
                 .then(() => this.load())
                 .then(() => this.resume())
             }
-        }).catch(console.log)
+        }).catch(this.log)
     }
 
     resume(pid?: number) {
@@ -123,7 +131,10 @@ export default class EasyFrida {
 
     getDevice(): Promise<frida.Device> {
         return new Promise(resolve => {
-            if(this.device !== undefined) resolve(this.device);
+            if(this.device !== undefined) {
+                resolve(this.device);
+                return;
+            }
 
             const getDeviceCallback = (device: frida.Device) => {
                 this.device = device;
@@ -147,20 +158,23 @@ export default class EasyFrida {
 
     private attachToSession = (session: frida.Session) => {
         if(this.enableChildGating) session.enableChildGating();
-        console.log(`[+] Attached to ${session.pid}.`);
+        this.log(`[+] Attached to ${session.pid}.`);
         
         const tmpProc: FridaProcess = Object.create(null);
         tmpProc.session = session;
-        
+        tmpProc.scopelist = [];
+
         tmpProc.onDetach = () => {
             const idx = this.procList.indexOf(tmpProc);
             if(idx < 0) return;
             this.log(`[!] Detached from pid ${tmpProc.session.pid}.`);
             this.procList.splice(idx, 1);
 
-            if(this.curProc === tmpProc && this.procList.length > 0) {
-                this.curProc = this.procList[0];
-                this.log(`[+] Switch to pid ${this.curProc.session.pid}.`);
+            if(this.procList.length > 0) {
+                if(this.curProc === tmpProc) {
+                    this.curProc = this.procList[0];
+                    this.log(`[+] Switch to pid ${this.curProc.session.pid}.`);
+                }
             } else {
                 this.curProc = Object.create(null);
                 if(this.interacting) {
@@ -223,27 +237,28 @@ export default class EasyFrida {
             this.log(text);
         }
         script.message.connect(this.onMessage.bind(this));
-        // script.destroyed.connect();
+        // script.destroyed.connect(() => {
+        //     this.log(curProc.session.pid + "'s script destroyed");
+        // });
         
-        let oldscript = this.curProc.script;
+        let oldscript = curProc.script;
         if(oldscript) {
-            // oldscript.destroyed.disconnect();
             await oldscript.unload();
         }
         
-        this.curProc.script = script;
+        curProc.script = script;
         await script.load();
     }
 
-    async watch(file = this.scriptFile, target = this.target, enableChildGating = false) {
-        await this.attachOrRun(target, enableChildGating);
+    async watch(file = this.scriptFile, target = this.target) {
+        await this.attachOrRun(target);
         process.chdir(this.agentProjectDir);
-        compiler.watch(path.join(this.baseDir, file), this.outFile, this.compileOptions)
+        this.watcher = compiler.watch(path.join(this.baseDir, file), this.outFile, this.compileOptions)
         .on('compile', details => {
             const duration = details.duration;
             this.log(`[+] Compile fin (${duration} ms)`);
-            if(this.interacting && this.scopeDepth !== 0) {
-                this.log(`[!] can't reload when script is busy, please quit scope and retry.`);
+            if(this.interacting && this.scopeCount > 0) {
+                this.log(`[!] can't reload when some script is busy, please quit scope and retry.`);
             } else {
                 // wait for flush
                 setTimeout(this.reload.bind(this), 50);
@@ -277,7 +292,7 @@ export default class EasyFrida {
                 }
             }
             catch(e) {
-                console.log(e);
+                this.log(e);
                 process.exit();
             }
         }
@@ -288,31 +303,35 @@ export default class EasyFrida {
     }
 
     private remoteEval = (code: string) => {
-        if(this.scopeDepth === 0) {
+        if(!this.curProc.scopeid) {
             return this.curProc.script.exports.exec(code);
         }
-        return new Promise(resolve => {
-            this.curProc.script.post({"type":"scope", "code":code});
-            this.remoteEvalCallback = resolve;
+        return new Promise(async resolve => {
+            this.curProc.script.post({"type":"scope-" + this.curProc.scopeid, "code":code});
+            while(this.remoteEvalCallbacks[this.curProc.scopeid] !== undefined) {
+                await sleep(500);
+            }
+            this.remoteEvalCallbacks[this.curProc.scopeid] = resolve;
         });
     }
 
-    private async onChild(child: frida.Child) {
+    private onChild = async (child: frida.Child) => {
+        this.log("[+] child process " + child.pid);
         await this.attach(child.pid);
-        await this.load().catch( e => {console.log(e);});
-        this.resume(child.pid);
+        await this.load();
+        await this.resume(child.pid);
     }
 
-    private onCrashed(crash: frida.Crash) {
-        console.log("");
-        console.log(crash.summary);
-        console.log(crash.report);
-        console.log(crash.parameters);
+    private onCrashed = (crash: frida.Crash) => {
+        this.log(crash.summary);
+        this.log(crash.report);
+        this.log(crash.parameters);
     }
 
     private log = (message: any) => {
+        if(message === undefined) debugger;
         if(this.logFile !== undefined) {
-                fs.writeFileSync(this.logFile, format(message) + "\n", { flag: 'a' });
+                fs.writeFileSync(this.logFile, format(message) + "\n", { flag: 'a+' });
         }
         if(this.interacting) {
             process.stdout.write("\r" + ' '.repeat(this.prompt.length + this.fridaRepl.repl.line.length) + "\r");
@@ -331,6 +350,7 @@ export default class EasyFrida {
         }
         
         this.procList = [];
+        this.scopeCount = 0;
         this.curProc = null;
     }
 
@@ -349,29 +369,58 @@ export default class EasyFrida {
         switch (message.type) {
             case frida.MessageType.Send:
                 const payload = message.payload;
-                switch(payload.type) {
-                    case "scope":
-                        if(payload.act == "enter") {
-                            this.scopeDepth += 1;
-                            this.updatePrompt();
+                const type: string = payload.type;
+                if(type.startsWith("scope-")) {
+                    const scopeid = type.substr(6);
+                    if(payload.act == "enter") {
+                        this.scopeCount += 1;
+                        if(this.curProc.session.pid != payload.pid) {
+                            for(const proc of this.procList) {
+                                if(proc.session.pid == payload.pid) {
+                                    this.curProc = proc;
+                                    this.log("[+] switch to " + payload.pid);
+                                    break;
+                                }
+                            }
                         }
-                        else if (payload.act == "quit") {
-                            this.scopeDepth -= 1;
-                            this.updatePrompt();
+                        this.curProc.scopelist.push(scopeid);
+                        this.curProc.scopeid = scopeid;
+                        this.updatePrompt();
+                    }
+                    else if (payload.act == "quit") {
+                        this.scopeCount -= 1;
+                        if(this.curProc.session.pid != payload.pid) {
+                            for(const proc of this.procList) {
+                                if(proc.session.pid == payload.pid) {
+                                    this.curProc = proc;
+                                    this.log("[+] switch to " + payload.pid);
+                                    break;
+                                }
+                            }
                         }
-                        else if (payload.act == "result") {
-                            this.remoteEvalCallback(payload.result);
-                        }
-                        break;
-                    case "rpc":
-                        // TODO
-                    default:
-                        this.log(payload);
-                        break;
+                        const id = this.curProc.scopelist.indexOf(scopeid);
+                        this.curProc.scopelist.splice(id, 1);
+                        this.curProc.scopeid = this.curProc.scopelist[this.curProc.scopelist.length - 1];
+                        this.updatePrompt();
+                    }
+                    else if (payload.act == "result") {
+                        this.remoteEvalCallbacks[scopeid](payload.result);
+                        delete this.remoteEvalCallbacks[scopeid];
+                    }
                 }
-                break;
+                else {
+                    switch(payload.type) {
+                        case "rpc":
+                            // TODO
+                        default:
+                            this.log(payload);
+                            break;
+                    }
+                    break;
+                }
+            break;
             case frida.MessageType.Error:
-                this.log(message.stack);
+                this.log((message as frida.ErrorMessage).stack);
                 break;
         }
     }
@@ -381,11 +430,11 @@ export default class EasyFrida {
         if(this.fridaRepl.useLocalEval) {
             this.prompt = "[local->nodejs] > ";
         }
-        else if(this.scopeDepth === 0) {
+        else if(this.curProc.scopeid === undefined) {
             this.prompt = `[${this.device.name}->${this.target}] > `;
         }
         else {
-            this.prompt = `[${this.device.name}->${this.target}>scope(${this.scopeDepth})] > `;
+            this.prompt = `[${this.device.name}->${this.target}->${this.curProc.scopeid}] > `;
         }
         this.fridaRepl.repl.setPrompt(this.prompt);
         this.fridaRepl.repl.displayPrompt();
