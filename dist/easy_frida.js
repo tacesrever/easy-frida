@@ -29,6 +29,9 @@ class EasyFrida {
         this.agentProjectDir = path.join(this.baseDir, "agent/");
         this.outFile = path.join(this.baseDir, "agent.js");
         this.enableChildGating = false;
+        this.enableSpawnGating = false;
+        this.enableDebugger = false;
+        this.onMessage = null;
         this.curProc = null;
         this.procList = [];
         this.interacting = false;
@@ -39,6 +42,10 @@ class EasyFrida {
                 this.getDevice().then(device => {
                     device.attach(target).then(sess => {
                         this.attachToSession(sess);
+                        if (typeof (target) === 'string') {
+                            this.curProc.name = target;
+                            this.updatePrompt();
+                        }
                         resolve(true);
                     })
                         .catch(e => {
@@ -59,6 +66,8 @@ class EasyFrida {
         this.attachToSession = (session) => {
             if (this.enableChildGating)
                 session.enableChildGating();
+            if (this.enableDebugger)
+                session.enableDebugger();
             this.log(`[+] Attached to ${session.pid}.`);
             const tmpProc = Object.create(null);
             tmpProc.session = session;
@@ -69,10 +78,11 @@ class EasyFrida {
                     return;
                 this.log(`[!] Detached from pid ${tmpProc.session.pid}.`);
                 this.procList.splice(idx, 1);
+                this.scopeCount -= tmpProc.scopelist.length;
                 if (this.procList.length > 0) {
                     if (this.curProc === tmpProc) {
                         this.curProc = this.procList[0];
-                        this.log(`[+] Switch to pid ${this.curProc.session.pid}.`);
+                        this.updatePrompt();
                     }
                 }
                 else {
@@ -92,12 +102,54 @@ class EasyFrida {
                 this.updatePrompt();
             }
         };
+        /**
+         * Used to add new `.`-prefixed commands to the REPL instance. Such commands are invoked
+         * by typing a `.` followed by the `keyword`.
+         *
+         * @param keyword The command keyword (_without_ a leading `.` character).
+         * @param command The function to invoke when the command is processed.
+         *
+         * @see https://nodejs.org/dist/latest-v10.x/docs/api/repl.html#repl_replserver_definecommand_keyword_cmd
+         */
+        this.defineCommand = (keyword, command) => {
+            this.replCommands[keyword] = command;
+            if (this.fridaRepl && this.fridaRepl.repl) {
+                this.fridaRepl.repl.defineCommand(keyword, command);
+            }
+        };
+        this.replCommands = {
+            "ps": {
+                help: "show attached processes",
+                action: () => {
+                    this.procList.forEach(proc => {
+                        this.log(`${proc.session.pid} ${proc.name}`);
+                    });
+                }
+            },
+            "s": {
+                help: "switch to process by pid",
+                action: pid => {
+                    this.procList.forEach(proc => {
+                        if (proc.session.pid === parseInt(pid)) {
+                            this.curProc = proc;
+                            this.updatePrompt();
+                        }
+                    });
+                }
+            }
+        };
         this.localEval = (code) => {
             return eval(code);
         };
+        /**
+         * eval jscode in frida agent.
+         *
+         * @param code jscode
+         * @return eval result
+         */
         this.remoteEval = (code) => {
             if (!this.curProc.scopeid) {
-                return this.curProc.script.exports.exec(code);
+                return this.curProc.script.exports.eval(code);
             }
             return new Promise(async (resolve) => {
                 this.curProc.script.post({ "type": "scope-" + this.curProc.scopeid, "code": code });
@@ -111,7 +163,14 @@ class EasyFrida {
             this.log("[+] child process " + child.pid);
             await this.attach(child.pid);
             await this.load();
-            await this.resume(child.pid);
+            this.resume(child.pid);
+        };
+        this.onSpawn = async (spawn) => {
+            if (typeof (this.target) === 'string' && spawn.identifier.indexOf(this.target) === 0) {
+                await this.attach(spawn.identifier);
+                await this.load();
+            }
+            this.resume(spawn.pid);
         };
         this.onCrashed = (crash) => {
             this.log(crash.summary);
@@ -142,7 +201,10 @@ class EasyFrida {
                 this.log(`[+] Spawning ${target}...`);
                 device.spawn(target)
                     .then(pid => {
-                    this.attach(pid).then(resolve);
+                    this.attach(pid).then(ret => {
+                        this.curProc.name = target;
+                        resolve(ret);
+                    });
                 })
                     .catch(e => {
                     this.log(`[!] Spawn failed: ${e.message}`);
@@ -167,6 +229,9 @@ class EasyFrida {
     rerun() {
         this.run().then(() => { this.reload(); });
     }
+    /**
+     * Attach to or spawn the target and inject ts/js file into it.
+     */
     inject(file = this.scriptFile, target = this.target) {
         return this.attachOrRun(target).then(attached => {
             if (attached) {
@@ -192,6 +257,9 @@ class EasyFrida {
                 this.device = device;
                 device.childAdded.connect(this.onChild);
                 device.processCrashed.connect(this.onCrashed);
+                device.spawnAdded.connect(this.onSpawn);
+                if (this.enableSpawnGating)
+                    device.enableSpawnGating();
                 resolve(device);
             };
             switch (this.location) {
@@ -207,6 +275,9 @@ class EasyFrida {
             }
         });
     }
+    /**
+     * reload this.outFile in all attached processes.
+     */
     async reload() {
         if (this.procList.length > 0) {
             lock.acquire("reload", async () => {
@@ -228,6 +299,11 @@ class EasyFrida {
             }, null, null);
         }
     }
+    /**
+     * compile a js/ts file use frida-compile, options can be set by modify this.compileOptions
+     * @param file path of the js/ts file
+     * @output will at this.outFile
+     */
     compile(file = this.scriptFile) {
         return new Promise(resolve => {
             process.chdir(this.agentProjectDir);
@@ -238,6 +314,11 @@ class EasyFrida {
             process.chdir(this.baseDir);
         });
     }
+    /**
+     * Load a single js file into current attached process
+     * @param file path of the js file, default is this.outFile
+     * @note (now) There can only be one js file loaded into one process, if there has been one, the old one will be unload.
+     */
     async load(file = this.outFile) {
         const curProc = this.curProc;
         const source = fs.readFileSync(file, "utf-8");
@@ -245,7 +326,7 @@ class EasyFrida {
         script.logHandler = (level, text) => {
             this.log(text);
         };
-        script.message.connect(this.onMessage.bind(this));
+        script.message.connect(this._onMessage.bind(this));
         // script.destroyed.connect(() => {
         //     this.log(curProc.session.pid + "'s script destroyed");
         // });
@@ -256,6 +337,11 @@ class EasyFrida {
         curProc.script = script;
         await script.load();
     }
+    /**
+     * Attach to or spawn the target, then start a watcher to compile ts/js file and load it into current attached processes.
+     * @param file path of main ts/js file
+     * @param target target process name, default is this.target
+     */
     async watch(file = this.scriptFile, target = this.target) {
         await this.attachOrRun(target);
         process.chdir(this.agentProjectDir);
@@ -277,7 +363,12 @@ class EasyFrida {
             this.log("[!] Compilation failed.");
         });
         process.chdir(this.baseDir);
+        return this.watcher;
     }
+    /**
+     * Start a repl that can eval jscode in remote frida attached process. Use `!jscode` to eval code at local, in which `this` will be the EasyFrida instance.
+     * @param finallyKill When exit from repl, target will be killed if true, otherwize only detach. Default value is false.
+     */
     async interact(finallyKill = false) {
         process.on('SIGINT', () => { });
         const fridaRepl = new frida_repl_1.FridaRepl(this.localEval, this.remoteEval, this.log);
@@ -286,6 +377,9 @@ class EasyFrida {
         this.fridaRepl = fridaRepl;
         this.updatePrompt();
         fridaRepl.repl.setupHistory(path.join(this.baseDir, ".easy_frida_history"), (e, r) => { });
+        for (const command in this.replCommands) {
+            fridaRepl.repl.defineCommand(command, this.replCommands[command]);
+        }
         fridaRepl.repl.on('exit', onExit.bind(this));
         function onExit() {
             try {
@@ -302,6 +396,9 @@ class EasyFrida {
             }
         }
     }
+    /**
+     * Detach from all attached process
+     */
     async detach() {
         for (let i in this.procList) {
             this.procList[i].session.detached.disconnect(this.procList[i].onDetach);
@@ -311,9 +408,12 @@ class EasyFrida {
         this.scopeCount = 0;
         this.curProc = null;
     }
+    /**
+     * Kill all attached process
+     */
     async kill() {
         if (this.procList.length) {
-            console.log("\nkilling", this.target); // repl
+            console.log("\nkilling", this.target);
             for (let i in this.procList) {
                 await this.device.kill(this.procList[i].session.pid).catch(() => { });
             }
@@ -321,7 +421,7 @@ class EasyFrida {
             this.curProc = null;
         }
     }
-    onMessage(message, data) {
+    _onMessage(message, data) {
         switch (message.type) {
             case frida.MessageType.Send:
                 const payload = message.payload;
@@ -344,6 +444,8 @@ class EasyFrida {
                         this.updatePrompt();
                     }
                     else if (payload.act == "quit") {
+                        if (this.remoteEvalCallbacks[scopeid])
+                            delete this.remoteEvalCallbacks[scopeid];
                         this.scopeCount -= 1;
                         if (this.curProc.session.pid != payload.pid) {
                             for (const proc of this.procList) {
@@ -365,18 +467,29 @@ class EasyFrida {
                     }
                 }
                 else {
-                    switch (payload.type) {
-                        case "rpc":
-                        // TODO
-                        default:
-                            this.log(payload);
-                            break;
+                    // switch(payload.type) {
+                    //     case "rpc":
+                    //         // TODO
+                    //     default:
+                    //         this.log(payload);
+                    //         break;
+                    // }
+                    if (this.onMessage) {
+                        this.onMessage(message, data);
+                    }
+                    else {
+                        this.log(payload);
                     }
                     break;
                 }
                 break;
             case frida.MessageType.Error:
-                this.log(message.stack);
+                if (this.onMessage) {
+                    this.onMessage(message, data);
+                }
+                else {
+                    this.log(message.stack);
+                }
                 break;
         }
     }
@@ -387,10 +500,12 @@ class EasyFrida {
             this.prompt = "[local->nodejs] > ";
         }
         else if (this.curProc.scopeid === undefined) {
-            this.prompt = `[${this.device.name}->${this.target}] > `;
+            const procid = this.curProc.name ? this.curProc.name : this.curProc.session.pid;
+            this.prompt = `[${this.device.name}->${procid}] > `;
         }
         else {
-            this.prompt = `[${this.device.name}->${this.target}->${this.curProc.scopeid}] > `;
+            const procid = this.curProc.name ? this.curProc.name : this.curProc.session.pid;
+            this.prompt = `[${this.device.name}->${procid}->${this.curProc.scopeid}] > `;
         }
         this.fridaRepl.repl.setPrompt(this.prompt);
         this.fridaRepl.repl.displayPrompt();

@@ -78,7 +78,7 @@ switch(Process.platform) {
 if(Process.findModuleByName(agentName) !== null) isServer = true;
 
 const globalEval = eval;
-rpc.exports.exec = (code: string) => {
+rpc.exports.eval = (code: string) => {
     return new Promise(resolve => {
         let result;
         if (code.substr(0, 2) !== "j:") {

@@ -64,11 +64,16 @@ export function importfunc(
             }
             else nativeArgs.push(arg);
         }
-        let retVal = nativeFunction(...nativeArgs);
-        if(retType === 'string') {
-            return (retVal as NativePointer).readCString();
+        try {
+            let retVal = nativeFunction(...nativeArgs);
+            if(retType === 'string') {
+                return (retVal as NativePointer).readCString();
+            }
+            return retVal;
+        } catch(e) {
+            console.log("error calling", funcName);
+            throw e;
         }
-        return retVal;
     }
 }
 
@@ -101,16 +106,17 @@ export function symbolName(address: number | NativePointer) {
         }
     }
 
-    const debugSymbol = DebugSymbol.fromAddress(address);
     const module = Process.findModuleByAddress(address);
     const range = Process.findRangeByAddress(address);
+    const debugSymbol = DebugSymbol.fromAddress(address);
+    
     if(debugSymbol && range) {
         name = debugSymbol.moduleName + '!' + debugSymbol.name+' ('+range.base+'+'+address.sub(range.base)+')';
     } else if(range) {
         name = '('+range.base+'+'+address.sub(range.base)+')';
         if(range.file)
             name = range.file.path + name;
-        else if(module) 
+        else if(module)
             name = module.name + name;
     } else if(debugSymbol) {
         name = address + ' ' + debugSymbol.moduleName;
@@ -375,10 +381,23 @@ export function showCpuContext(context: CpuContext) {
     }
     let i = 0, regsinfo = "";
     for(const regname of Object.getOwnPropertyNames(context)) {
+        const module = Process.findModuleByAddress(context[regname]);
+        const range = Process.findRangeByAddress(context[regname]);
+        
         let regnum = parseInt(context[regname]).toString(16);
         let padn = Process.pointerSize*2 - regnum.length;
         if(padn > 0) regnum = (new Array(padn + 1)).join('0') + regnum;
-        regsinfo += regname + "=" + regnum + "\t";
+        
+        if((range && !range.base.isNull()) || module) {
+            if(i%4 !== 1) regsinfo += "\n";
+            let symname: string;
+            if(module && module.name === "YuanShen.exe") symname = "in " + module.name;
+            else symname = symbolName(context[regname]);
+            regsinfo += regname + "=" + regnum + " " + symname;
+            i = 0;
+        } else {
+            regsinfo += regname + "=" + regnum + "\t";
+        }
         if(i%4 === 0) regsinfo += "\n";
         i++;
     }
@@ -445,5 +464,12 @@ export function showNativeExecption(handler?: ExceptionHandlerCallback) {
         }
         showCpuContext(details.context);
         if(handler) return handler(details);
+    });
+}
+
+export function setThreadStackRangeNames() {
+    Process.enumerateThreads().forEach(function(thread) {
+        const stackRange = Process.findRangeByAddress(thread.context.sp);
+        setName(stackRange.base, stackRange.size, "tid-" + thread.id + "-stack");
     });
 }

@@ -46,3 +46,4 @@ export declare function showThread(tid: number): void;
 export declare function showCpuContext(context: CpuContext): void;
 export declare function traceExecBlockByStalkerAt(addr: NativePointer): void;
 export declare function showNativeExecption(handler?: ExceptionHandlerCallback): void;
+export declare function setThreadStackRangeNames(): void;

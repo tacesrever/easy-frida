@@ -24,14 +24,14 @@ export class FridaRepl {
         Object.defineProperty(this.repl, "completer", {
             value: (line: string, callback: EvalCallback) => {
                 if(this.useLocalEval) {
-                    localCompleter(line, callback);
+                    localCompleter.call(this.repl, line, callback);
                 }
                 else if (line.startsWith(LocalEvalPrefix)) {
                         // localCompleter will call eval('try { expr } catch {}')
                         // to get local object, when our interactLabel isn't local.
                         // so force local here.
                         this.useLocalEval = true;
-                        localCompleter(line.substr(LocalEvalPrefix.length), (r, groups) => {
+                        localCompleter.call(this.repl, line.substr(LocalEvalPrefix.length), (r, groups) => {
                             this.useLocalEval = false;
                             callback(r, groups);
                         });
@@ -111,23 +111,25 @@ export class FridaRepl {
         groupsLoaded();
 
         function replCallback(e: Error, names: any) {
-            try {names = JSON.parse(names)} catch {};
-            const mGroups = [];
-            if(names instanceof Array)
-                mGroups.push(names);
-            if (!expr || expr === JavaPerformPrefix) {
-                groups = mGroups;
-                groupsLoaded();
-                return;
-            }
-            if (mGroups.length) {
-                for (let i = 0; i < mGroups.length; i++) {
-                    groups.push(mGroups[i].map( member => `${expr}.${member}`));
+            try {names = JSON.parse(names)} catch(e) {};
+            try {
+                const mGroups = [];
+                if(names instanceof Array)
+                    mGroups.push(names);
+                if (!expr || expr === JavaPerformPrefix) {
+                    groups = mGroups;
+                    groupsLoaded();
+                    return;
                 }
-                if (filter) {
-                    filter = `${expr}.${filter}`;
+                if (mGroups.length) {
+                    for (let i = 0; i < mGroups.length; i++) {
+                        groups.push(mGroups[i].map( member => `${expr}.${member}`));
+                    }
+                    if (filter) {
+                        filter = `${expr}.${filter}`;
+                    }
                 }
-            }
+            } catch {};
             groupsLoaded();
         }
 
@@ -179,9 +181,12 @@ export class FridaRepl {
                 getKeysCode = JavaPerformPrefix;
                 expr = expr.substr(JavaPerformPrefix.length);
             }
-            getKeysCode += `var _replobj = ${expr};`
-            getKeysCode += "Object.getOwnPropertyNames(_replobj)";
-            getKeysCode += ".concat(Object.getOwnPropertyNames(_replobj.__proto__))";
+            getKeysCode += `var _replobj = ${expr};`;
+            getKeysCode += "var _replkeys = Object.getOwnPropertyNames(_replobj);";
+            getKeysCode += "for(var p = _replobj.__proto__; p !== null; p = p.__proto__) { ";
+            getKeysCode +=   "_replkeys = _replkeys.concat(Object.getOwnPropertyNames(p));";
+            getKeysCode += "};";
+            getKeysCode += "_replkeys;";
             return getKeysCode;
         }
     }

@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.dumpBacktraceToFile = exports.DumpType = exports.showBacktrace = exports.debugWebView = exports.logScreen = exports.adbLog = exports.avoidConflict = exports.libraryOnLoad = exports.showlibevents = exports.showLogcat = exports.javaBacktrace = exports.showJavaBacktrace = void 0;
+exports.getNativeAddress = exports.showDialog = exports.dumpBacktraceToFile = exports.DumpType = exports.showBacktrace = exports.debugWebView = exports.logScreen = exports.adbLog = exports.avoidConflict = exports.libraryOnLoad = exports.showlibevents = exports.showLogcat = exports.showJavaCaller = exports.javaBacktrace = exports.showJavaBacktrace = void 0;
 const index_1 = require("./index");
 const native_1 = require("./native");
 const linux_1 = require("./linux");
@@ -14,6 +14,11 @@ function javaBacktrace() {
     return androidUtilLog.getStackTraceString(exception);
 }
 exports.javaBacktrace = javaBacktrace;
+function showJavaCaller() {
+    const backtrace = javaBacktrace();
+    console.log(backtrace.split("\n")[2]);
+}
+exports.showJavaCaller = showJavaCaller;
 /**
  * show android log at console.
  */
@@ -180,7 +185,8 @@ function logScreen() {
     Java.perform(function () {
         const View = Java.use("android.view.View");
         const Activity = Java.use("android.app.Activity");
-        function getViewIdStr(view) {
+        function getViewIdStr(_view) {
+            let view = Java.cast(_view, View);
             let r = view.mResources.value;
             let idstr = view.$className;
             let id = view.getId();
@@ -377,4 +383,34 @@ function dumpBacktraceToFile(tid, type, outfile) {
     close(fd);
 }
 exports.dumpBacktraceToFile = dumpBacktraceToFile;
+function showDialog(activityContext, message) {
+    Java.scheduleOnMainThread(function () {
+        const AlertDialogBuilder = Java.use("android.app.AlertDialog$Builder");
+        const JavaString = Java.use("java.lang.String");
+        const builder = AlertDialogBuilder.$new(activityContext);
+        const s = JavaString.$new(message);
+        builder.setMessage(s);
+        builder.create().show();
+    });
+}
+exports.showDialog = showDialog;
+function getNativeAddress(methodWarpper) {
+    let params = methodWarpper._p;
+    if (params === undefined && methodWarpper._o) {
+        if (methodWarpper._o.length === 1)
+            params = methodWarpper._o[0]._p;
+        else
+            throw "muti overloads";
+    }
+    if (params === undefined) {
+        throw "not a methodWarpper";
+    }
+    const [methodName, classWrapper, type, methodId, retType, argTypes] = params;
+    if (Process.arch === "arm64")
+        return methodId.add(0x18).readPointer();
+    console.log("not impl");
+    native_1.d(methodId);
+    eval(index_1.interact);
+}
+exports.getNativeAddress = getNativeAddress;
 //# sourceMappingURL=android.js.map

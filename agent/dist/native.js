@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.showNativeExecption = exports.traceExecBlockByStalkerAt = exports.showCpuContext = exports.showThread = exports.showThreads = exports.cprintf = exports.readStdString = exports.traceFunction = exports.traceCalled = exports.dumpMem = exports.showAddrInfo = exports.symbolName = exports.setName = exports.importfunc = exports.d = exports.showBacktrace = void 0;
+exports.setThreadStackRangeNames = exports.showNativeExecption = exports.traceExecBlockByStalkerAt = exports.showCpuContext = exports.showThread = exports.showThreads = exports.cprintf = exports.readStdString = exports.traceFunction = exports.traceCalled = exports.dumpMem = exports.showAddrInfo = exports.symbolName = exports.setName = exports.importfunc = exports.d = exports.showBacktrace = void 0;
 const _1 = require(".");
 function showBacktrace(context) {
     let bt = Thread.backtrace(context, Backtracer.ACCURATE).map(symbolName).join("\n\t");
@@ -67,11 +67,17 @@ function importfunc(libnameOrFuncaddr, funcName, retType, argTypes, abiOrOptions
             else
                 nativeArgs.push(arg);
         }
-        let retVal = nativeFunction(...nativeArgs);
-        if (retType === 'string') {
-            return retVal.readCString();
+        try {
+            let retVal = nativeFunction(...nativeArgs);
+            if (retType === 'string') {
+                return retVal.readCString();
+            }
+            return retVal;
         }
-        return retVal;
+        catch (e) {
+            console.log("error calling", funcName);
+            throw e;
+        }
     };
 }
 exports.importfunc = importfunc;
@@ -102,9 +108,9 @@ function symbolName(address) {
             return name;
         }
     }
-    const debugSymbol = DebugSymbol.fromAddress(address);
     const module = Process.findModuleByAddress(address);
     const range = Process.findRangeByAddress(address);
+    const debugSymbol = DebugSymbol.fromAddress(address);
     if (debugSymbol && range) {
         name = debugSymbol.moduleName + '!' + debugSymbol.name + ' (' + range.base + '+' + address.sub(range.base) + ')';
     }
@@ -385,11 +391,26 @@ function showCpuContext(context) {
     }
     let i = 0, regsinfo = "";
     for (const regname of Object.getOwnPropertyNames(context)) {
+        const module = Process.findModuleByAddress(context[regname]);
+        const range = Process.findRangeByAddress(context[regname]);
         let regnum = parseInt(context[regname]).toString(16);
         let padn = Process.pointerSize * 2 - regnum.length;
         if (padn > 0)
             regnum = (new Array(padn + 1)).join('0') + regnum;
-        regsinfo += regname + "=" + regnum + "\t";
+        if ((range && !range.base.isNull()) || module) {
+            if (i % 4 !== 1)
+                regsinfo += "\n";
+            let symname;
+            if (module && module.name === "YuanShen.exe")
+                symname = "in " + module.name;
+            else
+                symname = symbolName(context[regname]);
+            regsinfo += regname + "=" + regnum + " " + symname;
+            i = 0;
+        }
+        else {
+            regsinfo += regname + "=" + regnum + "\t";
+        }
         if (i % 4 === 0)
             regsinfo += "\n";
         i++;
@@ -459,4 +480,11 @@ function showNativeExecption(handler) {
     });
 }
 exports.showNativeExecption = showNativeExecption;
+function setThreadStackRangeNames() {
+    Process.enumerateThreads().forEach(function (thread) {
+        const stackRange = Process.findRangeByAddress(thread.context.sp);
+        setName(stackRange.base, stackRange.size, "tid-" + thread.id + "-stack");
+    });
+}
+exports.setThreadStackRangeNames = setThreadStackRangeNames;
 //# sourceMappingURL=native.js.map

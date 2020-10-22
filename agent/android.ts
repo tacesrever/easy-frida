@@ -1,6 +1,6 @@
 
 import { interact, isServer } from './index';
-import { cprintf, importfunc, readStdString } from './native';
+import { cprintf, d, importfunc, readStdString } from './native';
 import { findElfSegment } from './linux';
 
 export function showJavaBacktrace() {
@@ -10,6 +10,10 @@ export function javaBacktrace(): string {
     const androidUtilLog = Java.use('android.util.Log');
     const exception = Java.use('java.lang.Exception').$new();
     return androidUtilLog.getStackTraceString(exception);
+}
+export function showJavaCaller() {
+    const backtrace = javaBacktrace();
+    console.log(backtrace.split("\n")[2]);
 }
 /**
  * show android log at console.
@@ -31,7 +35,6 @@ export function showLogcat(level: number = 255) {
         }
     });
 }
-
 
 interface libCallback {
     (inited: boolean) : void
@@ -172,11 +175,11 @@ export function adbLog(...args: any[]) {
 export function logScreen() { Java.perform(function() {
     const View = Java.use("android.view.View");
     const Activity = Java.use("android.app.Activity");
-    
-    function getViewIdStr(view: any) {
+    function getViewIdStr(_view: any) {
+        let view = Java.cast(_view, View);
         let r = view.mResources.value;
         let idstr = view.$className;
-        let id = view.getId();
+        let id: number = view.getId();
         idstr += "@"+id.toString(16);
         try {
             idstr += ":" + r.getResourceTypeName(id)+"/"+r.getResourceEntryName(id);
@@ -374,4 +377,31 @@ export function dumpBacktraceToFile(tid: number, type: DumpType, outfile: string
     const fd = open(outfile, 65, 420) as number;
     _dump_backtrace_to_file(tid, type, fd);
     close(fd);
+}
+
+export function showDialog(activityContext: Java.Wrapper, message: string | Java.Wrapper) {
+    Java.scheduleOnMainThread(function() {
+        const AlertDialogBuilder = Java.use("android.app.AlertDialog$Builder");
+        const JavaString = Java.use("java.lang.String");
+        const builder = AlertDialogBuilder.$new(activityContext);
+        const s = JavaString.$new(message);
+        builder.setMessage(s);
+        builder.create().show();
+    });
+}
+
+export function getNativeAddress(methodWarpper) {
+    let params = methodWarpper._p;
+    if(params === undefined && methodWarpper._o) {
+        if(methodWarpper._o.length === 1) params = methodWarpper._o[0]._p;
+        else throw "muti overloads";
+    }
+    if(params === undefined) {
+        throw "not a methodWarpper";
+    }
+    const [methodName, classWrapper, type, methodId, retType, argTypes] = params;
+    if(Process.arch === "arm64") return methodId.add(0x18).readPointer();
+    console.log("not impl");
+    d(methodId);
+    eval(interact);
 }

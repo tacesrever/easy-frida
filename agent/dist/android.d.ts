@@ -1,6 +1,7 @@
 /// <reference types="frida-gum" />
 export declare function showJavaBacktrace(): void;
 export declare function javaBacktrace(): string;
+export declare function showJavaCaller(): void;
 /**
  * show android log at console.
  */
@@ -42,4 +43,6 @@ export declare enum DumpType {
  * dump backtrace using libdebuggerd_client.
  */
 export declare function dumpBacktraceToFile(tid: number, type: DumpType, outfile: string): void;
+export declare function showDialog(activityContext: Java.Wrapper, message: string | Java.Wrapper): void;
+export declare function getNativeAddress(methodWarpper: any): any;
 export {};

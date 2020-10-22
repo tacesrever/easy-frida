@@ -3,18 +3,33 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.dumplib = exports.heapSearch = exports.enumerateRanges = exports.findElfSegment = exports.ELFHeader = exports.readFile = void 0;
 const native_1 = require("./native");
 function readFile(filePath) {
-    const fopen = native_1.importfunc(null, "fopen", 'pointer', ['string', 'string']);
-    const fseek = native_1.importfunc(null, "fseek", 'int', ['pointer', 'int', 'int']);
-    const ftell = native_1.importfunc(null, "ftell", 'int', ['pointer']);
-    const fread = native_1.importfunc(null, "fread", 'uint', ['pointer', 'uint', 'uint', 'pointer']);
-    const fclose = native_1.importfunc(null, "fclose", 'int', ['pointer']);
-    const fd = fopen(filePath, 'rb');
-    fseek(fd, 0, 2);
-    const size = ftell(fd);
-    const base = Memory.alloc(size + 0x10);
-    fseek(fd, 0, 0);
-    fread(base, size, 1, fd);
-    fclose(fd);
+    const open = native_1.importfunc(null, "open", 'int', ['string', 'int']);
+    const read = native_1.importfunc(null, "read", 'uint', ['int', 'pointer', 'uint']);
+    const lseek = native_1.importfunc(null, "lseek", 'int', ['int', 'int', 'int']);
+    const close = native_1.importfunc(null, "close", 'int', ['int']);
+    const malloc = native_1.importfunc(null, "malloc", 'pointer', ['uint']);
+    const realloc = native_1.importfunc(null, "realloc", 'pointer', ['pointer', 'uint']);
+    const fd = open(filePath, 0);
+    let size = lseek(fd, 0, 2);
+    if (size > 0) {
+        const base = Memory.alloc(size + 0x10);
+        lseek(fd, 0, 0);
+        read(fd, base, size);
+        close(fd);
+        return { base, size };
+    }
+    const chunkSize = 1024;
+    let base = malloc(chunkSize);
+    let tsize = read(fd, base, chunkSize);
+    let offptr = base;
+    while (tsize === chunkSize) {
+        size += tsize;
+        offptr = base.add(size);
+        base = realloc(base, size + chunkSize);
+        tsize = read(fd, offptr, chunkSize);
+    }
+    if (tsize >= 0)
+        size += tsize;
     return { base, size };
 }
 exports.readFile = readFile;

@@ -8,7 +8,12 @@
         "sourceMap": true,
         "declaration": true,
         "esModuleInterop": true,
-        "outDir": "dist/"
+        "outDir": "dist/",
+        "plugins": [
+            {
+                "name": "frida-tsplugin"
+            }
+        ]
     },
     "include": [
         "**/*.ts"

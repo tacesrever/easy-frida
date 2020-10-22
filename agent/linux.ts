@@ -1,19 +1,34 @@
 import { importfunc } from './native';
 
 export function readFile(filePath: string) {
-    const fopen = importfunc(null, "fopen", 'pointer', ['string', 'string']);
-    const fseek = importfunc(null, "fseek", 'int', ['pointer', 'int', 'int']);
-    const ftell = importfunc(null, "ftell", 'int', ['pointer']);
-    const fread = importfunc(null, "fread", 'uint', ['pointer', 'uint', 'uint', 'pointer']);
-    const fclose = importfunc(null, "fclose", 'int', ['pointer']);
+    const open = importfunc(null, "open", 'int', ['string', 'int']);
+    const read = importfunc(null, "read", 'uint', ['int', 'pointer', 'uint']);
+    const lseek = importfunc(null, "lseek", 'int', ['int', 'int', 'int']);
+    const close = importfunc(null, "close", 'int', ['int']);
+    const malloc = importfunc(null, "malloc", 'pointer', ['uint']);
+    const realloc = importfunc(null, "realloc", 'pointer', ['pointer', 'uint']);
     
-    const fd = fopen(filePath, 'rb');
-    fseek(fd, 0, 2);
-    const size = ftell(fd) as number;
-    const base = Memory.alloc(size + 0x10);
-    fseek(fd, 0, 0);
-    fread(base, size, 1, fd);
-    fclose(fd);
+    const fd = open(filePath, 0);
+    
+    let size = lseek(fd, 0, 2) as number;
+    if(size > 0) {
+        const base = Memory.alloc(size + 0x10);
+        lseek(fd, 0, 0);
+        read(fd, base, size);
+        close(fd);
+        return {base, size};
+    }
+    const chunkSize = 1024;
+    let base = malloc(chunkSize) as NativePointer;
+    let tsize = read(fd, base, chunkSize) as number;
+    let offptr = base;
+    while(tsize === chunkSize) {
+        size += tsize;
+        offptr = base.add(size);
+        base = realloc(base, size + chunkSize) as NativePointer;
+        tsize = read(fd, offptr, chunkSize) as number;
+    }
+    if(tsize >= 0) size += tsize;
     return {base, size};
 }
 
