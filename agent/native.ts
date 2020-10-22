@@ -390,9 +390,7 @@ export function showCpuContext(context: CpuContext) {
         
         if((range && !range.base.isNull()) || module) {
             if(i%4 !== 1) regsinfo += "\n";
-            let symname: string;
-            if(module && module.name === "YuanShen.exe") symname = "in " + module.name;
-            else symname = symbolName(context[regname]);
+            let symname = symbolName(context[regname]);
             regsinfo += regname + "=" + regnum + " " + symname;
             i = 0;
         } else {
