@@ -15,7 +15,7 @@ a tool for easily develop frida agent script/module when reversing
 
 ![interact](interact.jpg)
 
-* many commonly used lib functions in fridalib  
+* many commonly used agent lib functions in fridalib  
 
 # usage  
 
@@ -29,7 +29,7 @@ a tool for easily develop frida agent script/module when reversing
     $ npm install
     $ npm link
 
-## use   
+## use  
 
 run`create-injector` at empty directory (see `scripts/create-injector.js`)  
 
