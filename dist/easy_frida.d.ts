@@ -7,9 +7,6 @@ export default class EasyFrida {
     remoteAddr?: string;
     compileOptions: {
         bytecode: boolean;
-        babelify: boolean;
-        esmify: boolean;
-        loose: boolean;
         sourcemap: boolean;
         compress: boolean;
         useAbsolutePaths: boolean;

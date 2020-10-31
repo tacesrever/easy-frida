@@ -18,9 +18,6 @@ class EasyFrida {
         this.remoteAddr = remoteAddr;
         this.compileOptions = {
             bytecode: false,
-            babelify: false,
-            esmify: false,
-            loose: false,
             sourcemap: true,
             compress: true,
             useAbsolutePaths: true
@@ -322,7 +319,7 @@ class EasyFrida {
     async load(file = this.outFile) {
         const curProc = this.curProc;
         const source = fs.readFileSync(file, "utf-8");
-        const script = await curProc.session.createScript(source, { runtime: frida.ScriptRuntime.V8 });
+        const script = await curProc.session.createScript(source);
         script.logHandler = (level, text) => {
             this.log(text);
         };

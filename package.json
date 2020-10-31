@@ -6,13 +6,13 @@
   "author": "tacesrever",
   "dependencies": {
     "async-lock": "^1.2.2",
-    "frida": "^12.11.12",
-    "frida-compile": "^9.3.0"
+    "frida": "^14.0.5",
+    "frida-compile": "^10.0.0"
   },
   "bin": {
     "create-injector": "scripts/create-injector.js"
   },
   "devDependencies": {
-    "@types/node": "^13.13.15"
+    "@types/node": "^13.13.30"
   }
 }
