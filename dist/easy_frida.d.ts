@@ -1,7 +1,7 @@
 import frida = require('frida');
 import { REPLCommand, REPLCommandAction } from 'repl';
 export default class EasyFrida {
-    target: number | string;
+    target: number | string | string[];
     location: 'usb' | 'local' | 'remote';
     targetos: 'win' | 'linux' | 'android' | 'ios';
     remoteAddr?: string;
@@ -29,15 +29,15 @@ export default class EasyFrida {
     private prompt;
     private remoteEvalCallbacks;
     private watcher;
-    constructor(target: number | string, location: 'usb' | 'local' | 'remote', targetos: 'win' | 'linux' | 'android' | 'ios', remoteAddr?: string);
-    run(target?: string | number): Promise<boolean>;
-    attach: (target?: string | number) => Promise<boolean>;
-    attachOrRun(target?: string | number): Promise<boolean>;
+    constructor(target: number | string | string[], location: 'usb' | 'local' | 'remote', targetos: 'win' | 'linux' | 'android' | 'ios', remoteAddr?: string);
+    run(target?: string | number | string[]): Promise<boolean>;
+    attach: (target?: string | number | string[]) => Promise<boolean>;
+    attachOrRun(target?: string | number | string[]): Promise<boolean>;
     rerun(): void;
     /**
      * Attach to or spawn the target and inject ts/js file into it.
      */
-    inject(file?: string, target?: string | number): Promise<void>;
+    inject(file?: string, target?: string | number | string[]): Promise<void>;
     resume(pid?: number): void;
     getDevice(): Promise<frida.Device>;
     private attachToSession;
@@ -62,7 +62,7 @@ export default class EasyFrida {
      * @param file path of main ts/js file
      * @param target target process name, default is this.target
      */
-    watch(file?: string, target?: string | number): Promise<any>;
+    watch(file?: string, target?: string | number | string[]): Promise<any>;
     /**
      * Start a repl that can eval jscode in remote frida attached process. Use `!jscode` to eval code at local, in which `this` will be the EasyFrida instance.
      * @param finallyKill When exit from repl, target will be killed if true, otherwize only detach. Default value is false.

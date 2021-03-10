@@ -37,7 +37,7 @@ class EasyFrida {
         this.attach = (target = this.target) => {
             return new Promise((resolve, reject) => {
                 this.getDevice().then(device => {
-                    device.attach(target).then(sess => {
+                    device.attach(target instanceof Array ? target[0] : target).then(sess => {
                         this.attachToSession(sess);
                         if (typeof (target) === 'string') {
                             this.curProc.name = target;
@@ -199,7 +199,7 @@ class EasyFrida {
                 device.spawn(target)
                     .then(pid => {
                     this.attach(pid).then(ret => {
-                        this.curProc.name = target;
+                        this.curProc.name = target instanceof Array ? target.join(" ") : target;
                         resolve(ret);
                     });
                 })

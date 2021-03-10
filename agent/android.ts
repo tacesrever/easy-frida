@@ -84,6 +84,7 @@ export function showlibevents(stop = false) {
     });
 }
 
+
 export function libraryOnLoad(libname: string, callback: libCallback) {
     monitor_libs.push({libname, callback});
     if(call_constructors !== undefined) return;
@@ -175,6 +176,7 @@ export function adbLog(...args: any[]) {
 export function logScreen() { Java.perform(function() {
     const View = Java.use("android.view.View");
     const Activity = Java.use("android.app.Activity");
+    
     function getViewIdStr(_view: any) {
         let view = Java.cast(_view, View);
         let r = view.mResources.value;

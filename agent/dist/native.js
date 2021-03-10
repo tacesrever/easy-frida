@@ -1,7 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.setThreadStackRangeNames = exports.showNativeExecption = exports.traceExecBlockByStalkerAt = exports.showCpuContext = exports.showThread = exports.showThreads = exports.cprintf = exports.readStdString = exports.traceFunction = exports.traceCalled = exports.dumpMem = exports.showAddrInfo = exports.symbolName = exports.setName = exports.importfunc = exports.d = exports.showBacktrace = void 0;
-const _1 = require(".");
+exports.setThreadStackRangeNames = exports.showNativeExecption = exports.traceExecBlockByStalkerAt = exports.showDiasm = exports.showCpuContext = exports.showThread = exports.showThreads = exports.cprintf = exports.readStdString = exports.traceFunction = exports.traceCalled = exports.dumpMem = exports.showAddrInfo = exports.symbolName = exports.setName = exports.importfunc = exports.d = exports.showBacktrace = void 0;
 function showBacktrace(context) {
     let bt = Thread.backtrace(context, Backtracer.ACCURATE).map(symbolName).join("\n\t");
     console.log('\t' + bt);
@@ -382,13 +381,6 @@ function showThread(tid) {
 }
 exports.showThread = showThread;
 function showCpuContext(context) {
-    try {
-        const inst = Instruction.parse(context.pc);
-        console.log(symbolName(context.pc), inst.mnemonic, inst.opStr);
-    }
-    catch (_a) {
-        console.log(symbolName(context.pc), "??");
-    }
     let i = 0, regsinfo = "";
     for (const regname of Object.getOwnPropertyNames(context)) {
         const module = Process.findModuleByAddress(context[regname]);
@@ -412,24 +404,40 @@ function showCpuContext(context) {
         i++;
     }
     console.log(regsinfo);
+    try {
+        const inst = Instruction.parse(context.pc);
+        console.log("At", symbolName(context.pc), inst.mnemonic, inst.opStr);
+    }
+    catch (_a) {
+        console.log("At", symbolName(context.pc), "??");
+    }
 }
 exports.showCpuContext = showCpuContext;
-function traceExecBlockByStalkerAt(addr) {
+function showDiasm(pc) {
+    let inst;
+    for (inst = Instruction.parse(pc); !inst.groups.includes('jump'); inst = Instruction.parse(inst.next)) {
+        console.log(inst.address, inst.mnemonic, inst.opStr);
+    }
+    console.log(inst.address, inst.mnemonic, inst.opStr);
+}
+exports.showDiasm = showDiasm;
+//shouldShow: (context: CpuContext) => boolean, shouldBreak: (context: CpuContext) => boolean, shouldStop: (context: CpuContext) => boolean
+function traceExecBlockByStalkerAt(addr, onExecBlock) {
     const compiledBlocks = {};
     const once = Interceptor.attach(addr, function () {
         once.detach();
         Interceptor.flush();
-        let trace = false;
+        let preTrace = true;
         const tid = Process.getCurrentThreadId();
         const targetBase = Process.findRangeByAddress(addr).base;
         Stalker.follow(tid, {
             transform: function (iterator) {
                 const startInst = iterator.next();
                 let inst = startInst;
-                if (!trace) {
+                if (preTrace) {
                     const range = Process.findRangeByAddress(inst.address);
                     if (range && targetBase.equals(range.base))
-                        trace = true;
+                        preTrace = false;
                     else {
                         while (inst !== null) {
                             iterator.keep();
@@ -442,22 +450,26 @@ function traceExecBlockByStalkerAt(addr) {
                 compiledBlocks[blockId] = [];
                 iterator.putCallout(handleBlock);
                 while (inst !== null) {
-                    compiledBlocks[blockId].push(symbolName(inst.address) + ' ' + inst.mnemonic + ' ' + inst.opStr);
+                    const tinst = inst;
+                    console.log(tinst);
+                    compiledBlocks[blockId].push(tinst);
                     iterator.keep();
                     inst = iterator.next();
                 }
             }
         });
-        let shouldBreak = (context) => true;
-        let shouldShow = (context) => true;
         function handleBlock(context) {
-            if (shouldShow(context)) {
-                showCpuContext(context);
-                const blockId = context.pc.toString();
-                console.log(compiledBlocks[blockId].join('\n'));
-            }
-            if (shouldBreak(context))
-                eval(_1.interact);
+            const blockId = context.pc.toString();
+            onExecBlock(context, compiledBlocks[blockId]);
+            //     if(shouldShow(context)) {
+            //         showCpuContext(context);
+            //         const blockId = context.pc.toString();
+            //         console.log(compiledBlocks[blockId].join('\n'));
+            //     }
+            //     if(shouldBreak(context)) eval(interact);
+            //     if(shouldStop(context)) {
+            //         Stalker.unfollow(tid);
+            //     }
         }
     });
 }

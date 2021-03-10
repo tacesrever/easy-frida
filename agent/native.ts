@@ -373,12 +373,6 @@ export function showThread(tid: number) {
 }
 
 export function showCpuContext(context: CpuContext) {
-    try {
-        const inst = Instruction.parse(context.pc);
-        console.log(symbolName(context.pc), inst.mnemonic, inst.opStr);
-    } catch {
-        console.log(symbolName(context.pc), "??");
-    }
     let i = 0, regsinfo = "";
     for(const regname of Object.getOwnPropertyNames(context)) {
         const module = Process.findModuleByAddress(context[regname]);
@@ -400,9 +394,24 @@ export function showCpuContext(context: CpuContext) {
         i++;
     }
     console.log(regsinfo);
+    try {
+        const inst = Instruction.parse(context.pc);
+        console.log("At", symbolName(context.pc), inst.mnemonic, inst.opStr);
+    } catch {
+        console.log("At", symbolName(context.pc), "??");
+    }
 }
 
-export function traceExecBlockByStalkerAt(addr: NativePointer) {
+export function showDiasm(pc: NativePointer) {
+    let inst;
+    for(inst = Instruction.parse(pc); !inst.groups.includes('jump'); inst = Instruction.parse(inst.next)) {
+        console.log(inst.address, inst.mnemonic, inst.opStr);
+    }
+    console.log(inst.address, inst.mnemonic, inst.opStr);
+}
+
+//shouldShow: (context: CpuContext) => boolean, shouldBreak: (context: CpuContext) => boolean, shouldStop: (context: CpuContext) => boolean
+export function traceExecBlockByStalkerAt(addr: NativePointer, onExecBlock: (ctx: CpuContext, block: any[]) => void) {
     const compiledBlocks: {
         [index: string]: string[]
     } = {};
@@ -410,16 +419,16 @@ export function traceExecBlockByStalkerAt(addr: NativePointer) {
     const once = Interceptor.attach(addr, function() {
         once.detach();
         (Interceptor as any).flush();
-        let trace = false;
+        let preTrace = true;
         const tid = Process.getCurrentThreadId();
         const targetBase = Process.findRangeByAddress(addr).base;
         Stalker.follow(tid, {
             transform: function(iterator) {
                 const startInst = iterator.next();
                 let inst = startInst;
-                if(!trace) {
+                if(preTrace) {
                     const range = Process.findRangeByAddress(inst.address);
-                    if(range && targetBase.equals(range.base)) trace = true;
+                    if(range && targetBase.equals(range.base)) preTrace = false;
                     else {
                         while(inst !== null) {
                             iterator.keep();
@@ -432,22 +441,27 @@ export function traceExecBlockByStalkerAt(addr: NativePointer) {
                 compiledBlocks[blockId] = [];
                 iterator.putCallout(handleBlock);
                 while(inst !== null) {
-                    compiledBlocks[blockId].push(symbolName(inst.address) + ' ' + inst.mnemonic + ' ' + inst.opStr);
+                    const tinst = inst;
+                    console.log(tinst);
+                    compiledBlocks[blockId].push(tinst);
                     iterator.keep();
                     inst = iterator.next();
                 }
             }
         });
 
-        let shouldBreak = (context: CpuContext) => true;
-        let shouldShow = (context: CpuContext) => true;
         function handleBlock(context) {
-            if(shouldShow(context)) {
-                showCpuContext(context);
-                const blockId = context.pc.toString();
-                console.log(compiledBlocks[blockId].join('\n'));
-            }
-            if(shouldBreak(context)) eval(interact);
+            const blockId = context.pc.toString();
+            onExecBlock(context, compiledBlocks[blockId]);
+        //     if(shouldShow(context)) {
+        //         showCpuContext(context);
+        //         const blockId = context.pc.toString();
+        //         console.log(compiledBlocks[blockId].join('\n'));
+        //     }
+        //     if(shouldBreak(context)) eval(interact);
+        //     if(shouldStop(context)) {
+        //         Stalker.unfollow(tid);
+        //     }
         }
     });
 }

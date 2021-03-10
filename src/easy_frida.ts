@@ -49,7 +49,7 @@ export default class EasyFrida {
         [index: string]: (result: any) => void
     } = {}
     private watcher: any
-    constructor(public target: number | string, public location: 'usb' | 'local' | 'remote', public targetos: 'win' | 'linux' | 'android' | 'ios', public remoteAddr?: string) {
+    constructor(public target: number | string | string[], public location: 'usb' | 'local' | 'remote', public targetos: 'win' | 'linux' | 'android' | 'ios', public remoteAddr?: string) {
     }
 
     run(target = this.target): Promise<boolean> {
@@ -64,7 +64,7 @@ export default class EasyFrida {
                 device.spawn(target)
                 .then(pid => {
                     this.attach(pid).then(ret => {
-                        this.curProc.name = target;
+                        this.curProc.name = target instanceof Array ? target.join(" ") : target;
                         resolve(ret);
                     });
                 })
@@ -79,7 +79,7 @@ export default class EasyFrida {
     attach = (target = this.target): Promise<boolean> => {
         return new Promise((resolve, reject) => {
             this.getDevice().then(device => {
-                device.attach(target).then(sess => {
+                device.attach(target instanceof Array ? target[0] : target).then(sess => {
                     this.attachToSession(sess);
                     if(typeof(target) === 'string') {
                         this.curProc.name = target;
