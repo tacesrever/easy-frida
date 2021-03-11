@@ -231,6 +231,8 @@ function fromClass(handle) {
                             const fieldClz = api.il2cpp_class_from_type(fieldType);
                             const valueSize = api.il2cpp_class_value_size(fieldClz, ptr(0));
                             const valuePtr = Memory.alloc(valueSize);
+                            if (valuePtr.isNull())
+                                return undefined;
                             api.il2cpp_field_static_get_value(curfield, valuePtr);
                             if (!api.il2cpp_class_is_valuetype(fieldClz)) {
                                 const valueHandle = valuePtr.readPointer();
@@ -270,7 +272,13 @@ function fromClass(handle) {
                 warpper = new Il2cppMethod(self, name);
                 self[name] = warpper;
             }
-            warpper.addOverload(method);
+            if (warpper instanceof Il2cppMethod) {
+                warpper.addOverload(method);
+            }
+            else {
+                warpper = new Il2cppMethod(self, name);
+                self["_" + name] = warpper;
+            }
             method = api.il2cpp_class_get_methods(curclz, tmpPtr);
         }
         curclz = api.il2cpp_class_get_parent(curclz);

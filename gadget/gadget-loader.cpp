@@ -16,7 +16,7 @@
 
 #include "nlohmann/json.hpp"
 
-#include "cathelper.h"
+#include "gadget-loader.h"
 
 using namespace std;
 using nlohmann::json;

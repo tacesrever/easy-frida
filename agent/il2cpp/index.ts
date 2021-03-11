@@ -265,6 +265,7 @@ function fromClass(handle: NativePointer): Il2cppClass {
                             const fieldClz = api.il2cpp_class_from_type(fieldType);
                             const valueSize = api.il2cpp_class_value_size(fieldClz, ptr(0));
                             const valuePtr = Memory.alloc(valueSize);
+                            if(valuePtr.isNull()) return undefined;
                             api.il2cpp_field_static_get_value(curfield, valuePtr);
                             if(!api.il2cpp_class_is_valuetype(fieldClz)) {
                                 const valueHandle = valuePtr.readPointer();
@@ -299,12 +300,18 @@ function fromClass(handle: NativePointer): Il2cppClass {
         let method = api.il2cpp_class_get_methods(curclz, tmpPtr);
         while(!method.isNull()) {
             const name = api.il2cpp_method_get_name(method).readCString() as string;
-            let warpper = self[name] as Il2cppMethod | undefined;
+            let warpper = self[name];
             if(warpper === undefined) {
                 warpper = new Il2cppMethod(self, name);
                 self[name] = warpper;
             }
-            warpper.addOverload(method);
+            if(warpper instanceof Il2cppMethod) {
+                warpper.addOverload(method);
+            } else {
+                warpper = new Il2cppMethod(self, name);
+                self["_"+name] = warpper;
+            }
+            
             method = api.il2cpp_class_get_methods(curclz, tmpPtr);
         }
         curclz = api.il2cpp_class_get_parent(curclz);
@@ -407,7 +414,6 @@ export function fromName(
         }
     }
     else if(!(image instanceof NativePointer)) image = image.handle;
-    
     const clz = api.il2cpp_class_from_name(image, namespace, name);
     if(clz.isNull()) return null;
     const result = fromClass(clz);

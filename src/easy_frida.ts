@@ -26,7 +26,7 @@ export default class EasyFrida {
     compileOptions = {
         bytecode: false,
         sourcemap: true,
-        compress: true,
+        compress: false,
         useAbsolutePaths: true
     }
     baseDir = process.cwd()

@@ -19,7 +19,7 @@ class EasyFrida {
         this.compileOptions = {
             bytecode: false,
             sourcemap: true,
-            compress: true,
+            compress: false,
             useAbsolutePaths: true
         };
         this.baseDir = process.cwd();

@@ -1,6 +1,4 @@
 
-import { libraryOnLoad } from '../android';
-
 const apiFunctions: {
     [index: string]: [string, string[]]
 } = {
