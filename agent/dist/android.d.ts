@@ -45,4 +45,10 @@ export declare enum DumpType {
 export declare function dumpBacktraceToFile(tid: number, type: DumpType, outfile: string): void;
 export declare function showDialog(activityContext: Java.Wrapper, message: string | Java.Wrapper): void;
 export declare function getNativeAddress(methodWarpper: any): any;
+export declare namespace Input {
+    function tap(coords: {
+        x: number;
+        y: number;
+    }[]): void;
+}
 export {};

@@ -407,3 +407,45 @@ export function getNativeAddress(methodWarpper) {
     d(methodId);
     eval(interact);
 }
+
+// rewrite from /system/framework/input.jar
+export namespace Input {
+    export function tap(coords: {x: number, y: number}[]) { Java.perform(() => {
+        const MotionEvent = Java.use("android.view.MotionEvent");
+        const InputManager = Java.use("android.hardware.input.InputManager");
+        const SystemClock = Java.use("android.os.SystemClock");
+        
+        const touchscreenInputSource = 0x1002;
+        const deviceId = getInputDeviceId(touchscreenInputSource);
+        
+        function randInt(max: number) {
+            return Math.round(Math.random() * max);
+        }
+
+        const now = SystemClock.uptimeMillis();
+        function injectTap(x: number, y: number) {
+            const eventDown = MotionEvent.obtain(now, now, 0, x, y, 1.0, 1.0, 0, 1.0, 1.0, deviceId, 0);
+            const upTime = now + 5 + randInt(10);
+            const eventUp = MotionEvent.obtain(now, upTime, 1, x, y, 0.0, 1.0, 0, 1.0, 1.0, deviceId, 0);
+            eventDown.setSource(touchscreenInputSource);
+            eventDown.setDisplayId(0);
+            eventUp.setSource(touchscreenInputSource);
+            eventUp.setDisplayId(0);
+            InputManager.getInstance().injectInputEvent(eventDown, 0);
+            InputManager.getInstance().injectInputEvent(eventUp, 0);
+        }
+
+        coords.forEach(coord => {
+            injectTap(coord.x, coord.y);
+        });
+    })};
+
+    function getInputDeviceId(inputSource: number) {
+        const InputDevice = Java.use("android.view.InputDevice");
+        const devIds: number[] = InputDevice.getDeviceIds();
+        for(let i = 0; i < devIds.length; ++i) {
+            let id = devIds[i];
+            if(InputDevice.getDevice(id).supportsSource(inputSource)) return id;
+        }
+    }
+}
