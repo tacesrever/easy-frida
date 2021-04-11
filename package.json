@@ -6,7 +6,7 @@
   "author": "tacesrever",
   "dependencies": {
     "async-lock": "^1.2.2",
-    "frida": "^14.0.5",
+    "frida": "^14.2.14",
     "frida-compile": "^10.0.0"
   },
   "bin": {

@@ -35,4 +35,4 @@ run`create-injector` at empty directory (see `scripts/create-injector.js`)
 
 edit target in injector.js  
 
-run injector.js  
+run injector.js with node  
