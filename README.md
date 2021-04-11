@@ -7,6 +7,8 @@ a tool for easily develop frida agent script/module when reversing
 
 ![repl](repl.jpg)
 
+notice: when doing this, your typed code will eval in frida env.  
+
 * custom command  
 
 ![definecmd](definecmd.jpg)
