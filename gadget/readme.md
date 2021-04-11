@@ -14,13 +14,15 @@ It will:
 
 ### usage  
 
+> [中文版](https://bbs.pediy.com/thread-266785.htm)  
+
 Make sure you read [this doc](https://frida.re/docs/gadget/)  
 
 download and put frida-gadget.so on your device, if you have problem with load it, try put them at `/system/lib(64)/*.so` ( [linker-namespace](https://source.android.com/devices/architecture/vndk/linker-namespace) ), or just close selinux.  
 
 config gadget to use ScriptDirectory, and edit LIB_FRIDA and FRIDA_SCRIPT_DIR in gadget-loader.h to suit your paths.  
 
-compile gadget-loader.cpp by ndk.  
+compile gadget-loader.cpp by ide or ndk.  
 
 inject it into zygote by lief, example:  
 
@@ -28,7 +30,7 @@ inject it into zygote by lief, example:
 import lief
 bin = lief.parse("libart.so") # one from /proc/zygote's pid/maps, make sure you have backup
 bin.add_library("gadget-loader.so")
-bin.write("libart_injected.so")
+bin.write("libart.so")
 ```
 
 then you can just put your frida script in ScriptDirectory on your device after make some modify to an app.  
