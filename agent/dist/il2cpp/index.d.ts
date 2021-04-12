@@ -13,6 +13,7 @@ interface Il2cppClass {
 interface Il2cppObject extends Il2cppClass {
     $handle: NativePointer;
     $arraySize?: number;
+    $arrayPtr?: NativePointer;
     $str?: string;
 }
 /**

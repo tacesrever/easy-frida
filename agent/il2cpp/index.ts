@@ -18,6 +18,7 @@ interface Il2cppClass {
 interface Il2cppObject extends Il2cppClass {
     $handle: NativePointer
     $arraySize?: number
+    $arrayPtr?: NativePointer
     $str?: string
 }
 
@@ -373,14 +374,14 @@ export function fromObject(handle: NativePointer | number): Il2cppObject | null 
         curclz = api.il2cpp_class_get_parent(curclz);
     }
     if(self.$className.substr(-2) === "[]") {
-        self.$arraySize = handle.add(0xc).readU32();
+        self.$arraySize = handle.add(3*Process.pointerSize).readU32();
+        self.$arrayPtr = handle.add(4*Process.pointerSize);
 
         return new Proxy(<Il2cppObject>self, {
             get: function(target, prop) {
                 const idx = parseInt(prop as string);
                 if(idx !== null && idx < <number>target.$arraySize) {
-                    // TODO: 64bit
-                    return fromObject(target.$handle.add(0x10+idx*4).readPointer());
+                    return fromObject(target.$handle.add(4*Process.pointerSize+idx*Process.pointerSize).readPointer());
                 }
                 return target[prop as string];
             }

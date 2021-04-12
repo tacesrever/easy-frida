@@ -345,13 +345,13 @@ function fromObject(handle) {
         curclz = api.il2cpp_class_get_parent(curclz);
     }
     if (self.$className.substr(-2) === "[]") {
-        self.$arraySize = handle.add(0xc).readU32();
+        self.$arraySize = handle.add(3 * Process.pointerSize).readU32();
+        self.$arrayPtr = handle.add(4 * Process.pointerSize);
         return new Proxy(self, {
             get: function (target, prop) {
                 const idx = parseInt(prop);
                 if (idx !== null && idx < target.$arraySize) {
-                    // TODO: 64bit
-                    return fromObject(target.$handle.add(0x10 + idx * 4).readPointer());
+                    return fromObject(target.$handle.add(4 * Process.pointerSize + idx * Process.pointerSize).readPointer());
                 }
                 return target[prop];
             }
