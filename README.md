@@ -35,7 +35,7 @@ notice: when doing this, your typed code will eval in frida env.
 
 run`create-injector` at empty directory (see `scripts/create-injector.js`)  
 
-open this directory with vscode (or other ide with typescript support)  
+open the directory with vscode (or other ide with typescript support)  
 
 edit target in injector.js  
 
