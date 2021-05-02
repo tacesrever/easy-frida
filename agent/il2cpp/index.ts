@@ -702,16 +702,16 @@ function findGetTypeInfoFromTypeDefinitionIndex() {
     }
     let last_inst = inst;
     let call_counter = 0;
-    let last_called;
+    let last_called: NativePointer;
     inst = <InstType>Instruction.parse(inst.next);
     while(call_counter < 3) {
         if(inst.mnemonic === 'b') {
-            if(last_called !== undefined && inst.operands[0].value !== last_called) {
+            if(last_called !== undefined && !last_called.equals(<number>inst.operands[0].value)) {
                 return ptr(<number>inst.operands[0].value);
             }
             
             call_counter += 1;
-            last_called = inst.operands[0].value;
+            last_called = ptr(<number>inst.operands[0].value);
         }
         last_inst = inst;
         inst = <InstType>Instruction.parse(inst.next);

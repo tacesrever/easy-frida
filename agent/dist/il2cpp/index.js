@@ -688,11 +688,11 @@ function findGetTypeInfoFromTypeDefinitionIndex() {
     inst = Instruction.parse(inst.next);
     while (call_counter < 3) {
         if (inst.mnemonic === 'b') {
-            if (last_called !== undefined && inst.operands[0].value !== last_called) {
+            if (last_called !== undefined && !last_called.equals(inst.operands[0].value)) {
                 return ptr(inst.operands[0].value);
             }
             call_counter += 1;
-            last_called = inst.operands[0].value;
+            last_called = ptr(inst.operands[0].value);
         }
         last_inst = inst;
         inst = Instruction.parse(inst.next);
