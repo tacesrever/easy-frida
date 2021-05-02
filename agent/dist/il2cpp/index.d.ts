@@ -26,6 +26,7 @@ export declare function dump(addrfile: string, outname: string): void;
  */
 export declare function enumerateImages(): Image[];
 export declare function findImageByName(name: string): Image;
+export declare function getMethodString(method: NativePointer): string;
 /**
  * get il2cpp object warpper by object pointer.
  */
@@ -59,4 +60,6 @@ export declare function enumerateAssemblies(): {
 export declare function enumerateTypes(filter: string[]): {
     [index: string]: string[];
 };
+export declare function il2cppSymbolName(addr: NativePointer): string;
+export declare function showBacktrace(context?: CpuContext): void;
 export {};

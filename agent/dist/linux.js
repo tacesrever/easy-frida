@@ -12,7 +12,7 @@ function readFile(filePath) {
     const fd = open(filePath, 0);
     let size = lseek(fd, 0, 2);
     if (size > 0) {
-        const base = Memory.alloc(size + 0x10);
+        const base = malloc(size + 0x10);
         lseek(fd, 0, 0);
         read(fd, base, size);
         close(fd);

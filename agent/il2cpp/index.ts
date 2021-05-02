@@ -1,6 +1,7 @@
 
 import { getApi } from './api';
-import { importfunc } from '../native';
+import { importfunc, symbolName } from '../native';
+import { readFile } from '../linux';
 
 interface Image {
     name: string | null
@@ -104,6 +105,32 @@ function isStaticMethod(method: NativePointer) {
     if(attrs & 0x10) return true;
     
     return false;
+}
+
+export function getMethodString(method: NativePointer) {
+    const api = getApi();
+    let declare: string = "";
+    const clz = api.il2cpp_method_get_class(method);
+    const clzName = api.il2cpp_class_get_name(clz).readCString() as string;
+    const clzNamespace = api.il2cpp_class_get_namespace(clz).readCString() as string;
+    const funcName = api.il2cpp_method_get_name(method).readCString() as string;
+    if(isStaticMethod(method)) declare = "static ";
+    let buffer = api.il2cpp_type_get_name(api.il2cpp_method_get_return_type(method));
+    declare += buffer.readCString();
+    api.il2cpp_free(buffer);
+    declare += ` ${clzNamespace}.${clzName}.${funcName}(`;
+    const argcount = api.il2cpp_method_get_param_count(method);
+    for(let i = 0; i < argcount; ++i) {
+        buffer = api.il2cpp_type_get_name(api.il2cpp_method_get_param(method, i));
+        declare += buffer.readCString() + " ";
+        declare += api.il2cpp_method_get_param_name(method, i).readCString();
+        if(i !== argcount - 1) {
+            declare += ", ";
+        }
+        api.il2cpp_free(buffer);
+    }
+    declare += ")";
+    return declare;
 }
 
 // TODO: per thread
@@ -427,7 +454,7 @@ export function fromFullname(fullname: string) {
     let splited = fullname.split(".");
     let name = splited[splited.length - 1];
     let namespace;
-    if(splited.length === 1) namespace = ptr(0);
+    if(splited.length === 1) namespace = "";
     else namespace = splited.slice(0, splited.length - 1).join(".");
     let result: Il2cppClass | null = null;
     for(const image of enumerateImages()) {
@@ -512,4 +539,242 @@ export function enumerateTypes(filter: string[]) {
         }
     });
     return result;
+}
+
+const backtraceCode = `
+#include "glib.h"
+#include "string.h"
+#include "stdlib.h"
+
+extern void __android_log_print(int level, const char* tag, const char* fmt, ...);
+#define log(...) __android_log_print(4, "frida-ILBT", __VA_ARGS__);
+
+typedef size_t pointerValue;
+typedef int32_t TypeDefinitionIndex;
+
+typedef struct Il2CppImage {
+    const char* name;
+    const char* nameNoExt;
+    uint32_t assembly;
+
+    TypeDefinitionIndex typeStart;
+    uint32_t typeCount;
+} Il2CppImage;
+
+extern pointerValue Il2cppBase;
+extern pointerValue il2cpp_domain_get();
+extern pointerValue* il2cpp_domain_get_assemblies(pointerValue domain, size_t *size);
+extern Il2CppImage* il2cpp_assembly_get_image(pointerValue assembly);
+extern pointerValue il2cpp_class_get_methods(pointerValue klass, void** iter);
+extern pointerValue GetTypeInfoFromTypeDefinitionIndex(TypeDefinitionIndex idx);
+
+extern pointerValue* method_ptr_info_map;
+extern unsigned int* method_order;
+extern unsigned int method_idx;
+extern size_t method_count;
+
+extern pointerValue* map_p;
+
+void foreach_method(void (*fn)(pointerValue)) {
+    pointerValue domain, klass, method, method_ptr;
+    size_t i, type_idx, type_idx_end, assembly_count;
+    Il2CppImage* image;
+    void* iter;
+
+    domain = il2cpp_domain_get();
+    pointerValue* assemblies = il2cpp_domain_get_assemblies(domain, &assembly_count);
+    for(i = 0; i < assembly_count; ++i) {
+        image = il2cpp_assembly_get_image(assemblies[i]);
+        type_idx_end = image->typeStart + image->typeCount;
+        for(type_idx = image->typeStart; type_idx < type_idx_end; ++type_idx) {
+            klass = GetTypeInfoFromTypeDefinitionIndex(type_idx);
+            iter = NULL;
+            method = il2cpp_class_get_methods(klass, &iter);
+            while (method != NULL) {
+                if(*(pointerValue*)method != NULL) fn(method);
+                method = il2cpp_class_get_methods(klass, &iter);
+            }
+        }
+    }
+}
+
+void count(pointerValue method) {
+    method_count++;
+}
+
+void sort_insert(pointerValue method) {
+    pointerValue key = *(pointerValue*)method;
+    pointerValue tmp_key;
+    pointerValue *start_p, *end_p;
+    unsigned int range, move_len;
+    if(*map_p > key) {
+        map_p--;
+        *map_p = key;
+        map_p[method_count] = method_idx;
+    } else {
+        start_p = map_p;
+        end_p = &method_ptr_info_map[method_count];
+        range = end_p - start_p;
+        while (range > 1) {
+            if(start_p[range/2] < key) {
+                start_p = &start_p[range/2];
+            } else {
+                end_p = &start_p[range/2];
+            }
+            range = end_p - start_p;
+        }
+        move_len = ((start_p - map_p) + 1) * sizeof(gpointer);
+        memmove(map_p - 1, map_p, move_len);
+        memmove(&map_p[method_count - 1], &map_p[method_count], move_len);
+        *start_p = key;
+        start_p[method_count] = method_idx;
+        map_p--;
+    }
+    method_idx++;
+}
+
+void load_method(pointerValue method) {
+    method_ptr_info_map[method_order[method_idx]] = *(pointerValue*)method;
+    method_ptr_info_map[method_order[method_idx] + method_count] = method;
+    method_idx++;
+}
+
+void parse() {
+    unsigned int i;
+    method_count = 0;
+    foreach_method(count);
+    log("method_count: %d", method_count);
+    if(method_ptr_info_map) g_free(method_ptr_info_map);
+    method_ptr_info_map = g_malloc(2 * method_count * sizeof(gpointer));
+    map_p = &method_ptr_info_map[method_count];
+    method_ptr_info_map[method_count] = (size_t)-1;
+    log("sorting...");
+    foreach_method(sort_insert);
+    method_order = g_malloc(method_count * sizeof(unsigned int));
+    for(i = 0; i < method_count; ++i) {
+        method_order[method_ptr_info_map[method_count + i]] = i;
+    }
+    log("loading...");
+    method_idx = 0;
+    foreach_method(load_method);
+    log("done.");
+}
+
+void load() {
+    method_idx = 0;
+    if(method_ptr_info_map) g_free(method_ptr_info_map);
+    method_ptr_info_map = g_malloc(2 * method_count * sizeof(gpointer));
+    foreach_method(load_method);
+}
+
+pointerValue get_method_info(pointerValue address) {
+    pointerValue *start_p, *end_p;
+    unsigned int range;
+    start_p = method_ptr_info_map;
+    end_p = method_ptr_info_map + method_count;
+    range = end_p - start_p;
+    while (range > 1) {
+        if(start_p[range/2] < address) {
+            start_p = &start_p[range/2];
+        } else {
+            end_p = &start_p[range/2];
+        }
+        range = end_p - start_p;
+    }
+    return start_p[method_count];
+}
+`;
+
+let btModule: CModule = null;
+
+/**  
+ * 
+
+*/
+function findGetTypeInfoFromTypeDefinitionIndex() {
+    if(!(["arm", "arm64"].includes(Process.arch))) return null;
+    type InstType = ArmInstruction | Arm64Instruction;
+    const libil2cpp = Process.findModuleByName("libil2cpp.so");
+    const il2cpp_type_get_class_or_element_class = libil2cpp.findExportByName("il2cpp_type_get_class_or_element_class");
+    let inst = <InstType>Instruction.parse(il2cpp_type_get_class_or_element_class);
+    while(inst.groups.includes("jump")) {
+        inst = <InstType>Instruction.parse(ptr(<number>inst.operands[0].value));
+    }
+    let last_inst = inst;
+    let call_counter = 0;
+    let last_called;
+    inst = <InstType>Instruction.parse(inst.next);
+    while(call_counter < 3) {
+        if(inst.mnemonic === 'b') {
+            if(last_called !== undefined && inst.operands[0].value !== last_called) {
+                return ptr(<number>inst.operands[0].value);
+            }
+            
+            call_counter += 1;
+            last_called = inst.operands[0].value;
+        }
+        last_inst = inst;
+        inst = <InstType>Instruction.parse(inst.next);
+    }
+}
+
+function backtraceInit() {
+    const linkSymbols: CSymbols = {};
+    const libil2cpp = Process.findModuleByName("libil2cpp.so");
+
+    linkSymbols["__android_log_print"] = Module.findExportByName(null, "__android_log_print");
+    linkSymbols["il2cpp_domain_get"] = libil2cpp.findExportByName("il2cpp_domain_get");
+    linkSymbols["il2cpp_assembly_get_image"] = libil2cpp.findExportByName("il2cpp_assembly_get_image");
+    linkSymbols["il2cpp_class_get_methods"] = libil2cpp.findExportByName("il2cpp_class_get_methods");
+    linkSymbols["GetTypeInfoFromTypeDefinitionIndex"] = findGetTypeInfoFromTypeDefinitionIndex();
+    linkSymbols["il2cpp_domain_get_assemblies"] = libil2cpp.findExportByName("il2cpp_domain_get_assemblies");
+    
+    linkSymbols["Il2cppBase"] = Memory.alloc(Process.pointerSize);
+    linkSymbols["Il2cppBase"].writePointer(libil2cpp.base);
+    linkSymbols["method_ptr_info_map"] = Memory.alloc(Process.pointerSize);
+    linkSymbols["method_order"] = Memory.alloc(Process.pointerSize);
+    linkSymbols["method_idx"] = Memory.alloc(Process.pointerSize);
+    linkSymbols["method_count"] = Memory.alloc(Process.pointerSize);
+    linkSymbols["map_p"] = Memory.alloc(Process.pointerSize);
+    btModule = new CModule(backtraceCode, linkSymbols);
+    
+    const fcmdline = readFile("/proc/self/cmdline");
+    const appname = fcmdline.base.readCString();
+    const savefile = `/data/data/${appname}/files/ILBT_method_order`;
+    const access = importfunc(null, "access", 'int', ['string', 'int']);
+    if(access(savefile, 4) === 0) {
+        const method_order = readFile(savefile);
+        globalThis._method_order = method_order;
+        linkSymbols["method_order"].writePointer(method_order.base);
+        linkSymbols["method_count"].writePointer(ptr(method_order.size / 4));
+        const load = new NativeFunction(btModule.load, 'void', []);
+        load();
+    }
+    else {
+        const parse = new NativeFunction(btModule.parse, 'void', []);
+        console.log();
+        parse();
+        const out = new File(savefile, "wb");
+        const data = btModule.method_order.readPointer().readByteArray(btModule.method_count.readUInt()*4);
+        out.write(data);
+        out.close();
+    }
+    const get_method_info = new NativeFunction(btModule.get_method_info, 'pointer', ['pointer']);
+    Object.defineProperty(btModule, "getMethodInfo", { value: get_method_info });
+}
+
+export function il2cppSymbolName(addr: NativePointer) {
+    const m = Process.findModuleByAddress(addr);
+    if(m && m.name === "libil2cpp.so") {
+        const method: NativePointer = btModule.getMethodInfo(addr);
+        const method_ptr = method.readPointer();
+        if(!method.isNull()) return `libil2cpp.so!${method_ptr.sub(m.base)} ${getMethodString(method)}+${addr.sub(method_ptr)}`;
+    }
+    return symbolName(addr);
+}
+
+export function showBacktrace(context?: CpuContext) {
+    if(btModule === null) backtraceInit();
+    let bt = Thread.backtrace(context, Backtracer.ACCURATE).map(il2cppSymbolName).join("\n\t");
+    console.log('\t' + bt);
 }

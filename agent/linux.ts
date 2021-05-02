@@ -12,7 +12,7 @@ export function readFile(filePath: string) {
     
     let size = lseek(fd, 0, 2) as number;
     if(size > 0) {
-        const base = Memory.alloc(size + 0x10);
+        const base = malloc(size + 0x10) as NativePointer;
         lseek(fd, 0, 0);
         read(fd, base, size);
         close(fd);
