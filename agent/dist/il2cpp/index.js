@@ -720,6 +720,7 @@ function backtraceInit() {
     const savefile = `/data/data/${appname}/files/ILBT_method_order`;
     const access = native_1.importfunc(null, "access", 'int', ['string', 'int']);
     if (access(savefile, 4) === 0) {
+        console.log(`found ${savefile}, loading...`);
         const method_order = linux_1.readFile(savefile);
         globalThis._method_order = method_order;
         linkSymbols["method_order"].writePointer(method_order.base);
@@ -729,12 +730,13 @@ function backtraceInit() {
     }
     else {
         const parse = new NativeFunction(btModule.parse, 'void', []);
-        console.log();
+        console.log("parsing method info, view logcat for details...");
         parse();
         const out = new File(savefile, "wb");
         const data = btModule.method_order.readPointer().readByteArray(btModule.method_count.readUInt() * 4);
         out.write(data);
         out.close();
+        console.log(`method order saved to ${savefile}, delete it when app upgrade.`);
     }
     const get_method_info = new NativeFunction(btModule.get_method_info, 'pointer', ['pointer']);
     Object.defineProperty(btModule, "getMethodInfo", { value: get_method_info });
