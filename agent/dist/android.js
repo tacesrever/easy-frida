@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.Input = exports.getNativeAddress = exports.showDialog = exports.dumpBacktraceToFile = exports.DumpType = exports.showBacktrace = exports.debugWebView = exports.logScreen = exports.adbLog = exports.avoidConflict = exports.libraryOnLoad = exports.showlibevents = exports.showLogcat = exports.showJavaCaller = exports.javaBacktrace = exports.showJavaBacktrace = void 0;
+exports.Input = exports.traceClass = exports.objToSimpleString = exports.cast = exports.getNativeAddress = exports.showDialog = exports.dumpBacktraceToFile = exports.DumpType = exports.showBacktrace = exports.debugWebView = exports.logScreen = exports.adbLog = exports.avoidConflict = exports.libraryOnLoad = exports.showlibevents = exports.showLogcat = exports.showJavaCaller = exports.javaBacktrace = exports.showJavaBacktrace = void 0;
 const index_1 = require("./index");
 const native_1 = require("./native");
 const linux_1 = require("./linux");
@@ -50,7 +50,8 @@ let call_constructors;
  * callback(false) when .init_array funcs not called,
  * callback(true) after.
  */
-function showlibevents(stop = false) {
+const sleep = native_1.importfunc("libc.so", "sleep", "void", ["int"]);
+function showlibevents(timeout = 0) {
     const address = DebugSymbol.getFunctionByName("__dl__ZN6soinfo17call_constructorsEv");
     let work_around_b_24465209 = true;
     if (Process.arch == "arm64")
@@ -75,15 +76,20 @@ function showlibevents(stop = false) {
             else
                 libname = "";
             const tid = Process.getCurrentThreadId();
+            this.tid = tid;
+            this.libname = libname;
             console.log(`[${tid}] init ${libname} ${base}`);
-            if (stop)
+            if (timeout == -1)
                 eval(index_1.interact);
+            else if (timeout > 0)
+                sleep(timeout);
         },
         onLeave: function () {
-            if (stop) {
-                console.log("init fin");
+            console.log(`[${this.tid}] ${this.libname} init finished`);
+            if (timeout == -1)
                 eval(index_1.interact);
-            }
+            else if (timeout > 0)
+                sleep(timeout);
         }
     });
 }
@@ -194,7 +200,7 @@ function logScreen() {
             try {
                 idstr += ":" + r.getResourceTypeName(id) + "/" + r.getResourceEntryName(id);
             }
-            catch (_a) { }
+            catch { }
             return idstr;
         }
         View.performClick.implementation = function () {
@@ -413,6 +419,59 @@ function getNativeAddress(methodWarpper) {
     eval(index_1.interact);
 }
 exports.getNativeAddress = getNativeAddress;
+function cast(obj) {
+    if (obj instanceof Object && obj.$className) {
+        return Java.cast(obj, Java.use(obj.$className));
+    }
+    return obj;
+}
+exports.cast = cast;
+function objToSimpleString(obj) {
+    let resultStr = "";
+    if (obj === 0)
+        return "0";
+    if (obj === "")
+        return "";
+    if (obj === null)
+        return "null";
+    if (obj === undefined)
+        return "undefined";
+    if (obj && obj.toString) {
+        resultStr = cast(obj).toString();
+    }
+    if (resultStr.indexOf('\n') !== -1) {
+        resultStr = resultStr.substring(0, resultStr.indexOf('\n')) + "...";
+    }
+    if (resultStr.length > 50) {
+        resultStr = resultStr.substring(0, 50) + "...";
+    }
+    return resultStr;
+}
+exports.objToSimpleString = objToSimpleString;
+function traceClass(className) {
+    const clz = Java.use(className);
+    const methods = clz.class.getDeclaredMethods();
+    for (const method of methods) {
+        const methodName = method.getName();
+        const argTypes = method.getParameterTypes().map(t => t.getName());
+        clz[methodName].overload(...argTypes).implementation = function (...args) {
+            console.log(`${className}.${methodName}(${args.map(a => objToSimpleString(a)).join(", ")})`);
+            let result = this[methodName](...args);
+            console.log(`${className}.${methodName}(${args.map(a => objToSimpleString(a)).join(", ")}) => ${objToSimpleString(result)}`);
+            return result;
+        };
+    }
+    return {
+        detach: () => {
+            for (const method of methods) {
+                const methodName = method.getName();
+                const argTypes = method.getArgumentTypes().map(t => t.getName());
+                clz[methodName].overload(...argTypes).implementation = null;
+            }
+        }
+    };
+}
+exports.traceClass = traceClass;
 // rewrite from /system/framework/input.jar
 var Input;
 (function (Input) {
@@ -424,7 +483,7 @@ var Input;
             const touchscreenInputSource = 0x1002;
             const deviceId = getInputDeviceId(touchscreenInputSource);
             function randInt(max) {
-                return Math.round(Math.random() * max);
+                return Math.floor(Math.random() * max);
             }
             const now = SystemClock.uptimeMillis();
             function injectTap(x, y) {

@@ -25,56 +25,77 @@ export function d(address: number | NativePointer, size?: number) {
  * warpper for NativeFunction, add 'string' type.
  * slower, just for convenience.
  */
-export function importfunc(
+type NativeFunctionReturnTypeMapEx = NativeFunctionReturnTypeMap & {
+    string: string;
+}
+type NativeFunctionReturnTypeEx = RecursiveKeysOf<NativeFunctionReturnTypeMapEx>;
+type NativeFunctionReturnValueEx = RecursiveValuesOf<NativeFunctionReturnTypeMapEx>;
+
+type GetNativeFunctionReturnValueEx<T extends NativeFunctionReturnTypeEx> = GetValue<
+    NativeFunctionReturnTypeMapEx,
+    NativeFunctionReturnValueEx,
+    NativeFunctionReturnTypeEx,
+    T
+>;
+
+type NativeFunctionArgumentTypeMapEx = NativeFunctionArgumentTypeMap & {
+    string: string;
+}
+type NativeFunctionArgumentTypeEx = RecursiveKeysOf<NativeFunctionArgumentTypeMapEx>;
+type NativeFunctionArgumentValueEx = RecursiveValuesOf<NativeFunctionArgumentTypeMapEx>;
+
+type GetNativeFunctionArgumentValueEx<T extends NativeFunctionArgumentTypeEx> = GetValue<
+    NativeFunctionArgumentTypeMapEx,
+    NativeFunctionArgumentValueEx,
+    NativeFunctionArgumentTypeEx,
+    T
+>;
+
+interface NativeFunctionEx<RetType extends NativeFunctionReturnValueEx, ArgTypes extends NativeFunctionArgumentValueEx[] | []>
+    extends NativePointer {
+    (...args: ArgTypes): RetType;
+    apply(thisArg: NativePointerValue | null | undefined, args: ArgTypes): RetType;
+    call(thisArg?: NativePointerValue | null, ...args: ArgTypes): RetType;
+}
+
+export function importfunc <RetType extends NativeFunctionReturnTypeEx, ArgTypes extends NativeFunctionArgumentTypeEx[] | []> (
         libnameOrFuncaddr: string | NativePointerValue | null,
         funcName: string,
-        retType: NativeType,
-        argTypes: NativeType[],
+        retType: RetType,
+        argTypes: ArgTypes,
         abiOrOptions?: NativeABI | NativeFunctionOptions) {
     let funcAddress: NativePointerValue;
-    const realArgTypes: NativeType[] = [];
-    let nativeFunction: NativeFunction;
-
+    
     if (libnameOrFuncaddr === null || typeof libnameOrFuncaddr === 'string') {
         funcAddress = Module.getExportByName(libnameOrFuncaddr as any, funcName);
     } else funcAddress = libnameOrFuncaddr;
     
-    argTypes.forEach(type => {
-        if(type === 'string') realArgTypes.push('pointer');
-        else realArgTypes.push(type);
-    });
-    if(retType === 'string') {
-        if(abiOrOptions)
-            nativeFunction = new NativeFunction(funcAddress, 'pointer', realArgTypes, abiOrOptions);
-        else
-            nativeFunction = new NativeFunction(funcAddress, 'pointer', realArgTypes);
-    }
-    else {
-        if(abiOrOptions)
-            nativeFunction = new NativeFunction(funcAddress, retType, realArgTypes, abiOrOptions);
-        else
-            nativeFunction = new NativeFunction(funcAddress, retType, realArgTypes);
-    }
+    const realRetType = retType === 'string' ? 'pointer' : retType;
+    const realArgTypes = argTypes.map(argType => argType === 'string' ? 'pointer' : argType);
 
-    return function(...args: (NativeArgumentValue | string)[]) {
-        let nativeArgs: NativeArgumentValue[] = [];
-        for(const arg of args) {
-            if(typeof arg === 'string') {
-                nativeArgs.push(Memory.allocUtf8String(arg));
+    let nativeFunction = new (<any>NativeFunction)(funcAddress, realRetType, realArgTypes, abiOrOptions);
+
+    return new Proxy(nativeFunction, {
+        apply: (target, thisArg, args) => {
+            let nativeArgs: NativeFunctionArgumentValue[] = [];
+            for(const arg of args) {
+                if(typeof arg === 'string') {
+                    nativeArgs.push(Memory.allocUtf8String(arg));
+                }
+                else nativeArgs.push(arg);
             }
-            else nativeArgs.push(arg);
-        }
-        try {
-            let retVal = nativeFunction(...nativeArgs);
-            if(retType === 'string') {
-                return (retVal as NativePointer).readCString();
+            try {
+                let retVal = target(...nativeArgs);
+                if(retType === 'string') {
+                    return (retVal as NativePointer).readCString();
+                }
+                return retVal;
+            } catch(e) {
+                console.log("error calling", funcName);
+                throw e;
             }
-            return retVal;
-        } catch(e) {
-            console.log("error calling", funcName);
-            throw e;
         }
-    }
+    }) as NativeFunctionEx<GetNativeFunctionReturnValueEx<RetType>,ResolveVariadic<Extract<GetNativeFunctionArgumentValueEx<ArgTypes>, unknown[]>>>;
 }
 
 let customNames: {
@@ -200,7 +221,7 @@ function readNativeArg (handle: NativePointer, name: string) {
 }
 
 function getArgName(name: string) {
-    return name.substr(name.indexOf(".")+1);
+    return name.substring(name.indexOf(".")+1);
 }
 
 export function traceCalled(libnameOrFuncaddr: string | NativePointerValue | null, funcName: string) {
@@ -223,14 +244,14 @@ export function traceCalled(libnameOrFuncaddr: string | NativePointerValue | nul
     return Interceptor.attach(funcAddr, _hooks);
 }
 /**
- * typeformat: T.name, where T is: \
- * p: Pointer \
- * i: int \
- * s: String \
- * d%d|%x: data and it's length\
- * v: Pointer => Value \
- * w: Pointer => Pointer => Value \
- * example: traceFunction(null, 'open', 'i.fd', ['s.name', 'p.flag'])
+ * typeformat: T.name, where T is:  
+ * p: Pointer  
+ * i: int  
+ * s: String  
+ * d%d|%x: data and it's length  
+ * v: Pointer => Value  
+ * w: Pointer => Pointer => Value  
+ * example: traceFunction(null, 'open', 'i.fd', ['s.name', 'p.flag'])  
  */
 export function traceFunction(
         libnameOrFuncaddr: string | NativePointerValue | null,
@@ -329,14 +350,14 @@ export function cprintf(format: string, args: NativePointer[], vaArgIndex = 1, m
         }
     }
     const buffer = Memory.alloc(maxSize);
-    const types = ['pointer', 'pointer', 'string'];
+    const types: NativeFunctionArgumentTypeEx[] = ['pointer', 'pointer', 'string'];
     const snprintfArgs = [ buffer, ptr(maxSize), format ];
     for(let i = 0; i < count; ++i) {
         types.push('pointer');
         snprintfArgs.push(args[vaArgIndex + i]);
     }
     const snprintf = importfunc(null, 'snprintf', 'int', types);
-    snprintf(...snprintfArgs);
+    (snprintf as any)(...snprintfArgs);
     return buffer.readUtf8String();
 };
 
@@ -440,10 +461,10 @@ export function traceExecBlockByStalkerAt(addr: NativePointer, onExecBlock: (ctx
                 const blockId = startInst.address.toString();
                 compiledBlocks[blockId] = [];
                 iterator.putCallout(handleBlock);
+                if(startInst != null) showDiasm(startInst.address);
                 while(inst !== null) {
                     const tinst = inst;
-                    console.log(tinst);
-                    compiledBlocks[blockId].push(tinst);
+                    compiledBlocks[blockId].push(tinst.toString());
                     iterator.keep();
                     inst = iterator.next();
                 }

@@ -17,17 +17,17 @@ notice: when doing this, your typed code will eval in frida env.
 
 ![interact](interact.jpg)
 
-* many commonly used agent lib functions in fridalib  
+* many commonly used agent lib functions in agent/ (use in code: `import * as xxx from 'fridalib/xxx'`)  
 
 # usage  
 
 ## install  
 
     $ git clone https://github.com/tacesrever/easy-frida.git
-    $ cd easy-frida/
+    $ cd agent/dist/
     $ npm install
     $ npm link
-    $ cd agent/dist/
+    $ cd easy-frida/
     $ npm install
     $ npm link
 

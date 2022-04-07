@@ -534,14 +534,13 @@ extern void __android_log_print(int level, const char* tag, const char* fmt, ...
 #define log(...) __android_log_print(4, "frida-ILBT", __VA_ARGS__);
 
 typedef size_t pointerValue;
-typedef int32_t TypeDefinitionIndex;
 
 typedef struct Il2CppImage {
     const char* name;
     const char* nameNoExt;
-    uint32_t assembly;
+    uint32_t assemblyIndex;
 
-    TypeDefinitionIndex typeStart;
+    int32_t typeStart;
     uint32_t typeCount;
 } Il2CppImage;
 
@@ -665,14 +664,11 @@ pointerValue get_method_info(pointerValue address) {
         }
         range = end_p - start_p;
     }
+    if(address == *end_p) return end_p[method_count];
     return start_p[method_count];
 }
 `;
 let btModule = null;
-/**
- *
-
-*/
 function findGetTypeInfoFromTypeDefinitionIndex() {
     if (!(["arm", "arm64"].includes(Process.arch)))
         return null;
@@ -698,7 +694,7 @@ function findGetTypeInfoFromTypeDefinitionIndex() {
         inst = Instruction.parse(inst.next);
     }
 }
-function backtraceInit() {
+function addrSymbolInit() {
     const linkSymbols = {};
     const libil2cpp = Process.findModuleByName("libil2cpp.so");
     linkSymbols["__android_log_print"] = Module.findExportByName(null, "__android_log_print");
@@ -730,7 +726,7 @@ function backtraceInit() {
     }
     else {
         const parse = new NativeFunction(btModule.parse, 'void', []);
-        console.log("parsing method info, view logcat for details...");
+        console.log("parsing method info, view `logcat | grep ILBT` for details...");
         parse();
         const out = new File(savefile, "wb");
         const data = btModule.method_order.readPointer().readByteArray(btModule.method_count.readUInt() * 4);
@@ -741,7 +737,10 @@ function backtraceInit() {
     const get_method_info = new NativeFunction(btModule.get_method_info, 'pointer', ['pointer']);
     Object.defineProperty(btModule, "getMethodInfo", { value: get_method_info });
 }
+// get method symbol string of native function address in libil2cpp.so
 function il2cppSymbolName(addr) {
+    if (btModule === null)
+        addrSymbolInit();
     const m = Process.findModuleByAddress(addr);
     if (m && m.name === "libil2cpp.so") {
         const method = btModule.getMethodInfo(addr);
@@ -752,11 +751,10 @@ function il2cppSymbolName(addr) {
     return native_1.symbolName(addr);
 }
 exports.il2cppSymbolName = il2cppSymbolName;
+// show symbolized backtrace in libil2cpp.so
 function showBacktrace(context) {
-    if (btModule === null)
-        backtraceInit();
-    let bt = Thread.backtrace(context, Backtracer.ACCURATE).map(il2cppSymbolName).join("\n\t");
-    console.log('\t' + bt);
+    let bt = Thread.backtrace(context, Backtracer.ACCURATE).map(il2cppSymbolName).join("\n");
+    console.log(bt);
 }
 exports.showBacktrace = showBacktrace;
 //# sourceMappingURL=index.js.map

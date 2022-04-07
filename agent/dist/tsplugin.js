@@ -60,7 +60,7 @@ routeMap["/getJavaClassInfo"] = function (req, res) {
         try {
             wrapper = Java.use(query.className);
         }
-        catch (_a) {
+        catch {
             res.writeHead(404);
             res.end();
             return;

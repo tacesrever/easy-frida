@@ -9,12 +9,7 @@ export declare function showLogcat(level?: number): void;
 interface libCallback {
     (inited: boolean): void;
 }
-/**
- * callback will be called when library loaded.
- * callback(false) when .init_array funcs not called,
- * callback(true) after.
- */
-export declare function showlibevents(stop?: boolean): void;
+export declare function showlibevents(timeout?: number): void;
 export declare function libraryOnLoad(libname: string, callback: libCallback): void;
 /**
  * when gadget already injected and use server, this should be called.
@@ -45,6 +40,11 @@ export declare enum DumpType {
 export declare function dumpBacktraceToFile(tid: number, type: DumpType, outfile: string): void;
 export declare function showDialog(activityContext: Java.Wrapper, message: string | Java.Wrapper): void;
 export declare function getNativeAddress(methodWarpper: any): any;
+export declare function cast(obj: any): any;
+export declare function objToSimpleString(obj: any): string;
+export declare function traceClass(className: string): {
+    detach: () => void;
+};
 export declare namespace Input {
     function tap(coords: {
         x: number;

@@ -1,11 +1,11 @@
 {
-  "name": "fridalib",
-  "version": "1.0.0",
-  "description": "common frida agent modules",
-  "main": "index.js",
-  "author": "tacesrever",
-  "dependencies": {
-    "@types/frida-gum": "^16.5.0",
-    "@types/node": "^13.13.4"
-  }
+    "name": "fridalib",
+    "version": "1.0.0",
+    "description": "common frida agent modules",
+    "main": "index.js",
+    "author": "tacesrever",
+    "dependencies": {
+        "@types/frida-gum": "^18.0.0",
+        "@types/node": "^16.4.8"
+    }
 }

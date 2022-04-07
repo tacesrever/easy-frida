@@ -9,14 +9,14 @@ const outputdir = process.cwd();
 const agentdir = path.join(outputdir, "agent");
 const templatedir = path.join(__dirname, '../injector_template');
 const files = [
-  "injector.js",
-  "agent/tsconfig.json",
-  "agent/main.ts"
+    "injector.js",
+    "agent/tsconfig.json",
+    "agent/main.ts"
 ]
-if(!fs.existsSync(agentdir)) fs.mkdirSync(agentdir);
-for(const file of files) {
-  fs.copyFileSync(path.join(templatedir, file), path.join(outputdir, file));
+if (!fs.existsSync(agentdir)) fs.mkdirSync(agentdir);
+for (const file of files) {
+    fs.copyFileSync(path.join(templatedir, file), path.join(outputdir, file));
 }
-child_process.execSync("npm link easy-frida", {cwd: outputdir});
-// child_process.execSync("npm link @frida/uglifyify", {cwd: outputdir});
-child_process.execSync("npm link fridalib", {cwd: agentdir});
+
+child_process.execSync("npm link fridalib", { cwd: agentdir });
+child_process.execSync("npm link easy-frida", { cwd: outputdir });

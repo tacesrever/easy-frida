@@ -201,6 +201,7 @@ export function enumerateRanges() {
 }
 
 export function heapSearch(pattern: string) {
+    
     let ranges = enumerateRanges();
     let result: MemoryScanMatch[] = [];
     ranges.forEach(function(range) {

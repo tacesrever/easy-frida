@@ -49,7 +49,10 @@ let call_constructors: InvocationListener;
  * callback(false) when .init_array funcs not called,  
  * callback(true) after.  
  */
-export function showlibevents(stop = false) {
+
+const sleep = importfunc("libc.so", "sleep", "void", ["int"]);
+
+export function showlibevents(timeout = 0) {
     const address = DebugSymbol.getFunctionByName("__dl__ZN6soinfo17call_constructorsEv");
     let work_around_b_24465209 = true;
     if (Process.arch == "arm64") work_around_b_24465209 = false;
@@ -71,19 +74,20 @@ export function showlibevents(stop = false) {
             }
             else libname = "";
             const tid = Process.getCurrentThreadId();
+            this.tid = tid;
+            this.libname = libname;
             
             console.log(`[${tid}] init ${libname} ${base}`);
-            if(stop) eval(interact);
+            if(timeout == -1) eval(interact);
+            else if(timeout > 0) sleep(timeout);
         },
         onLeave: function() {
-            if(stop) {
-                console.log("init fin");
-                eval(interact);
-            }
+            console.log(`[${this.tid}] ${this.libname} init finished`);
+            if(timeout == -1) eval(interact);
+            else if(timeout > 0) sleep(timeout);
         }
     });
 }
-
 
 export function libraryOnLoad(libname: string, callback: libCallback) {
     monitor_libs.push({libname, callback});
@@ -363,7 +367,7 @@ export enum DumpType {
     JavaBacktrace,
     AnyIntercept
 };
-let _dump_backtrace_to_file: NativeFunction | null = null;
+let _dump_backtrace_to_file: NativeFunction<BaseNativeTypeMap["int"], [BaseNativeTypeMap["uint"], BaseNativeTypeMap["int"], BaseNativeTypeMap["int"]]> | null = null;
 const open = importfunc("libc.so", "open", 'int', ['string', 'int', 'int']);
 const close = importfunc("libc.so", "close", 'int', ['int']);
 /**
@@ -408,6 +412,57 @@ export function getNativeAddress(methodWarpper) {
     eval(interact);
 }
 
+export function cast(obj) {
+    if(obj instanceof Object && obj.$className) {
+        return Java.cast(obj, Java.use(obj.$className));
+    }
+    return obj;
+}
+
+export function objToSimpleString(obj) {
+    let resultStr = "";
+
+    if(obj === 0) return "0";
+    if(obj === "") return "";
+    if(obj === null) return "null";
+    if(obj === undefined) return "undefined";
+
+    if(obj && obj.toString) {
+        resultStr = cast(obj).toString();
+    }
+    if(resultStr.indexOf('\n') !== -1) {
+        resultStr = resultStr.substring(0, resultStr.indexOf('\n')) + "...";
+    }
+    if(resultStr.length > 50) {
+        resultStr = resultStr.substring(0, 50) + "...";
+    }
+    return resultStr;
+}
+
+export function traceClass(className: string) {
+    const clz = Java.use(className);
+    const methods = clz.class.getDeclaredMethods();
+    for(const method of methods) {
+        const methodName = method.getName();
+        const argTypes = method.getParameterTypes().map(t => t.getName());
+        clz[methodName].overload(...argTypes).implementation = function(...args) {
+            console.log(`${className}.${methodName}(${args.map(a => objToSimpleString(a)).join(", ")})`);
+            let result = this[methodName](...args);
+            console.log(`${className}.${methodName}(${args.map(a => objToSimpleString(a)).join(", ")}) => ${objToSimpleString(result)}`);
+            return result;
+        }
+    }
+    return {
+        detach: () => {
+            for(const method of methods) {
+                const methodName = method.getName();
+                const argTypes = method.getArgumentTypes().map(t => t.getName());
+                clz[methodName].overload(...argTypes).implementation = null;
+            }
+        }
+    }
+}
+
 // rewrite from /system/framework/input.jar
 export namespace Input {
     export function tap(coords: {x: number, y: number}[]) { Java.perform(() => {
@@ -419,7 +474,7 @@ export namespace Input {
         const deviceId = getInputDeviceId(touchscreenInputSource);
         
         function randInt(max: number) {
-            return Math.round(Math.random() * max);
+            return Math.floor(Math.random() * max);
         }
 
         const now = SystemClock.uptimeMillis();

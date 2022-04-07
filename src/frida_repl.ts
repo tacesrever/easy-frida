@@ -31,7 +31,7 @@ export class FridaRepl {
                         // to get local object, when our interactLabel isn't local.
                         // so force local here.
                         this.useLocalEval = true;
-                        localCompleter.call(this.repl, line.substr(LocalEvalPrefix.length), (r, groups) => {
+                        localCompleter.call(this.repl, line.substring(LocalEvalPrefix.length), (r, groups) => {
                             this.useLocalEval = false;
                             callback(r, groups);
                         });
@@ -179,7 +179,7 @@ export class FridaRepl {
             let getKeysCode = "";
             if(expr.startsWith(JavaPerformPrefix)) {
                 getKeysCode = JavaPerformPrefix;
-                expr = expr.substr(JavaPerformPrefix.length);
+                expr = expr.substring(JavaPerformPrefix.length);
             }
             getKeysCode += `var _replobj = ${expr};`;
             getKeysCode += "var _replkeys = Object.getOwnPropertyNames(_replobj);";

@@ -28,6 +28,7 @@ class EasyFrida {
         this.enableChildGating = false;
         this.enableSpawnGating = false;
         this.enableDebugger = false;
+        this.resumeAfterScriptLoaded = true;
         this.onMessage = null;
         this.curProc = null;
         this.procList = [];
@@ -69,11 +70,15 @@ class EasyFrida {
             const tmpProc = Object.create(null);
             tmpProc.session = session;
             tmpProc.scopelist = [];
-            tmpProc.onDetach = () => {
+            tmpProc.onDetach = (reason, crash) => {
                 const idx = this.procList.indexOf(tmpProc);
                 if (idx < 0)
                     return;
-                this.log(`[!] Detached from pid ${tmpProc.session.pid}.`);
+                this.log(`[!] Detached from pid ${tmpProc.session.pid} due to ${reason}`);
+                if (crash) {
+                    this.log(`[!] ${crash.summary}`);
+                    this.log(`[!] ${crash.report}`);
+                }
                 this.procList.splice(idx, 1);
                 this.scopeCount -= tmpProc.scopelist.length;
                 if (this.procList.length > 0) {
@@ -97,6 +102,32 @@ class EasyFrida {
             if (this.interacting) {
                 this.fridaRepl.useLocalEval = false;
                 this.updatePrompt();
+            }
+        };
+        /**
+         * Load a single js file into current attached process
+         * @param file path of the js file, default is this.outFile
+         * @note (now) There can only be one js file loaded into one process, if there has been one, the old one will be unload.
+         */
+        this.load = async (file = this.outFile) => {
+            const curProc = this.curProc;
+            const source = fs.readFileSync(file, "utf-8");
+            const script = await curProc.session.createScript(source);
+            script.logHandler = (level, text) => {
+                this.log(text);
+            };
+            script.message.connect(this._onMessage.bind(this));
+            // script.destroyed.connect(() => {
+            //     this.log(curProc.session.pid + "'s script destroyed");
+            // });
+            let oldscript = curProc.script;
+            if (oldscript) {
+                await oldscript.unload();
+            }
+            curProc.script = script;
+            await script.load();
+            if (this.resumeAfterScriptLoaded) {
+                this.resume();
             }
         };
         /**
@@ -214,8 +245,9 @@ class EasyFrida {
         return new Promise(resolve => {
             this.attach(target).then(resolve)
                 .catch(e => {
-                if (e.message === "Process not found")
+                if (e.message === "Process not found") {
                     this.run(target).then(resolve);
+                }
                 else {
                     this.log("[!] Attach Error: " + e.message);
                     resolve(false);
@@ -312,29 +344,6 @@ class EasyFrida {
         });
     }
     /**
-     * Load a single js file into current attached process
-     * @param file path of the js file, default is this.outFile
-     * @note (now) There can only be one js file loaded into one process, if there has been one, the old one will be unload.
-     */
-    async load(file = this.outFile) {
-        const curProc = this.curProc;
-        const source = fs.readFileSync(file, "utf-8");
-        const script = await curProc.session.createScript(source);
-        script.logHandler = (level, text) => {
-            this.log(text);
-        };
-        script.message.connect(this._onMessage.bind(this));
-        // script.destroyed.connect(() => {
-        //     this.log(curProc.session.pid + "'s script destroyed");
-        // });
-        let oldscript = curProc.script;
-        if (oldscript) {
-            await oldscript.unload();
-        }
-        curProc.script = script;
-        await script.load();
-    }
-    /**
      * Attach to or spawn the target, then start a watcher to compile ts/js file and load it into current attached processes.
      * @param file path of main ts/js file
      * @param target target process name, default is this.target
@@ -347,7 +356,7 @@ class EasyFrida {
             const duration = details.duration;
             this.log(`[+] Compile fin (${duration} ms)`);
             if (this.interacting && this.scopeCount > 0) {
-                this.log(`[!] can't reload when some script is busy, please quit scope and retry.`);
+                this.log(`[!] can't reload when within local scope, please quit scope and retry.`);
             }
             else {
                 // wait for flush
@@ -404,6 +413,10 @@ class EasyFrida {
         this.procList = [];
         this.scopeCount = 0;
         this.curProc = null;
+        if (this.fridaRepl) {
+            this.fridaRepl.useLocalEval = true;
+            this.updatePrompt();
+        }
     }
     /**
      * Kill all attached process
@@ -424,7 +437,7 @@ class EasyFrida {
                 const payload = message.payload;
                 const type = payload.type;
                 if (type.startsWith("scope-")) {
-                    const scopeid = type.substr(6);
+                    const scopeid = type.substring(6);
                     if (payload.act == "enter") {
                         this.scopeCount += 1;
                         if (this.curProc.session.pid != payload.pid) {

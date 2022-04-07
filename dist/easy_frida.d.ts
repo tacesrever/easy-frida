@@ -20,6 +20,7 @@ export default class EasyFrida {
     enableChildGating: boolean;
     enableSpawnGating: boolean;
     enableDebugger: boolean;
+    resumeAfterScriptLoaded: boolean;
     onMessage: frida.ScriptMessageHandler;
     private curProc;
     private procList;
@@ -56,7 +57,7 @@ export default class EasyFrida {
      * @param file path of the js file, default is this.outFile
      * @note (now) There can only be one js file loaded into one process, if there has been one, the old one will be unload.
      */
-    load(file?: string): Promise<void>;
+    load: (file?: string) => Promise<void>;
     /**
      * Attach to or spawn the target, then start a watcher to compile ts/js file and load it into current attached processes.
      * @param file path of main ts/js file

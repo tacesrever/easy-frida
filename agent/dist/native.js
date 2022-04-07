@@ -26,58 +26,39 @@ function d(address, size) {
     }
 }
 exports.d = d;
-/**
- * warpper for NativeFunction, add 'string' type.
- * slower, just for convenience.
- */
 function importfunc(libnameOrFuncaddr, funcName, retType, argTypes, abiOrOptions) {
     let funcAddress;
-    const realArgTypes = [];
-    let nativeFunction;
     if (libnameOrFuncaddr === null || typeof libnameOrFuncaddr === 'string') {
         funcAddress = Module.getExportByName(libnameOrFuncaddr, funcName);
     }
     else
         funcAddress = libnameOrFuncaddr;
-    argTypes.forEach(type => {
-        if (type === 'string')
-            realArgTypes.push('pointer');
-        else
-            realArgTypes.push(type);
+    const realRetType = retType === 'string' ? 'pointer' : retType;
+    const realArgTypes = argTypes.map(argType => argType === 'string' ? 'pointer' : argType);
+    let nativeFunction = new NativeFunction(funcAddress, realRetType, realArgTypes, abiOrOptions);
+    return new Proxy(nativeFunction, {
+        apply: (target, thisArg, args) => {
+            let nativeArgs = [];
+            for (const arg of args) {
+                if (typeof arg === 'string') {
+                    nativeArgs.push(Memory.allocUtf8String(arg));
+                }
+                else
+                    nativeArgs.push(arg);
+            }
+            try {
+                let retVal = target(...nativeArgs);
+                if (retType === 'string') {
+                    return retVal.readCString();
+                }
+                return retVal;
+            }
+            catch (e) {
+                console.log("error calling", funcName);
+                throw e;
+            }
+        }
     });
-    if (retType === 'string') {
-        if (abiOrOptions)
-            nativeFunction = new NativeFunction(funcAddress, 'pointer', realArgTypes, abiOrOptions);
-        else
-            nativeFunction = new NativeFunction(funcAddress, 'pointer', realArgTypes);
-    }
-    else {
-        if (abiOrOptions)
-            nativeFunction = new NativeFunction(funcAddress, retType, realArgTypes, abiOrOptions);
-        else
-            nativeFunction = new NativeFunction(funcAddress, retType, realArgTypes);
-    }
-    return function (...args) {
-        let nativeArgs = [];
-        for (const arg of args) {
-            if (typeof arg === 'string') {
-                nativeArgs.push(Memory.allocUtf8String(arg));
-            }
-            else
-                nativeArgs.push(arg);
-        }
-        try {
-            let retVal = nativeFunction(...nativeArgs);
-            if (retType === 'string') {
-                return retVal.readCString();
-            }
-            return retVal;
-        }
-        catch (e) {
-            console.log("error calling", funcName);
-            throw e;
-        }
-    };
 }
 exports.importfunc = importfunc;
 let customNames = [];
@@ -207,7 +188,7 @@ function readNativeArg(handle, name) {
     }
 }
 function getArgName(name) {
-    return name.substr(name.indexOf(".") + 1);
+    return name.substring(name.indexOf(".") + 1);
 }
 function traceCalled(libnameOrFuncaddr, funcName) {
     let funcAddr;
@@ -231,13 +212,13 @@ function traceCalled(libnameOrFuncaddr, funcName) {
 }
 exports.traceCalled = traceCalled;
 /**
- * typeformat: T.name, where T is: \
- * p: Pointer \
- * i: int \
- * s: String \
- * d%d|%x: data and it's length\
- * v: Pointer => Value \
- * w: Pointer => Pointer => Value \
+ * typeformat: T.name, where T is:
+ * p: Pointer
+ * i: int
+ * s: String
+ * d%d|%x: data and it's length
+ * v: Pointer => Value
+ * w: Pointer => Pointer => Value
  * example: traceFunction(null, 'open', 'i.fd', ['s.name', 'p.flag'])
  */
 function traceFunction(libnameOrFuncaddr, funcName, retType, argTypes, hooks = {}) {
@@ -408,7 +389,7 @@ function showCpuContext(context) {
         const inst = Instruction.parse(context.pc);
         console.log("At", symbolName(context.pc), inst.mnemonic, inst.opStr);
     }
-    catch (_a) {
+    catch {
         console.log("At", symbolName(context.pc), "??");
     }
 }
@@ -449,10 +430,11 @@ function traceExecBlockByStalkerAt(addr, onExecBlock) {
                 const blockId = startInst.address.toString();
                 compiledBlocks[blockId] = [];
                 iterator.putCallout(handleBlock);
+                if (startInst != null)
+                    showDiasm(startInst.address);
                 while (inst !== null) {
                     const tinst = inst;
-                    console.log(tinst);
-                    compiledBlocks[blockId].push(tinst);
+                    compiledBlocks[blockId].push(tinst.toString());
                     iterator.keep();
                     inst = iterator.next();
                 }

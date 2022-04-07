@@ -9,7 +9,22 @@ export declare function d(address: number | NativePointer, size?: number): void;
  * warpper for NativeFunction, add 'string' type.
  * slower, just for convenience.
  */
-export declare function importfunc(libnameOrFuncaddr: string | NativePointerValue | null, funcName: string, retType: NativeType, argTypes: NativeType[], abiOrOptions?: NativeABI | NativeFunctionOptions): (...args: (NativeArgumentValue | string)[]) => string | number | boolean | any[] | NativePointer | UInt64 | Int64;
+declare type NativeFunctionReturnTypeMapEx = NativeFunctionReturnTypeMap & {
+    string: string;
+};
+declare type NativeFunctionReturnTypeEx = RecursiveKeysOf<NativeFunctionReturnTypeMapEx>;
+declare type NativeFunctionReturnValueEx = RecursiveValuesOf<NativeFunctionReturnTypeMapEx>;
+declare type NativeFunctionArgumentTypeMapEx = NativeFunctionArgumentTypeMap & {
+    string: string;
+};
+declare type NativeFunctionArgumentTypeEx = RecursiveKeysOf<NativeFunctionArgumentTypeMapEx>;
+declare type NativeFunctionArgumentValueEx = RecursiveValuesOf<NativeFunctionArgumentTypeMapEx>;
+interface NativeFunctionEx<RetType extends NativeFunctionReturnValueEx, ArgTypes extends NativeFunctionArgumentValueEx[] | []> extends NativePointer {
+    (...args: ArgTypes): RetType;
+    apply(thisArg: NativePointerValue | null | undefined, args: ArgTypes): RetType;
+    call(thisArg?: NativePointerValue | null, ...args: ArgTypes): RetType;
+}
+export declare function importfunc<RetType extends NativeFunctionReturnTypeEx, ArgTypes extends NativeFunctionArgumentTypeEx[] | []>(libnameOrFuncaddr: string | NativePointerValue | null, funcName: string, retType: RetType, argTypes: ArgTypes, abiOrOptions?: NativeABI | NativeFunctionOptions): NativeFunctionEx<GetValue<NativeFunctionReturnTypeMapEx, NativeFunctionReturnValueEx, NativeFunctionReturnTypeEx, RetType>, ResolveVariadic<Extract<GetValue<NativeFunctionArgumentTypeMapEx, NativeFunctionArgumentValueEx, NativeFunctionArgumentTypeEx, ArgTypes>, unknown[]>>>;
 /**
  * set custom debug symbol name to range.
  * show as name or name+offset.
@@ -26,13 +41,13 @@ export declare function showAddrInfo(address: number | NativePointer): void;
 export declare function dumpMem(address: number | NativePointer, size: number, outname: string): void;
 export declare function traceCalled(libnameOrFuncaddr: string | NativePointerValue | null, funcName: string): InvocationListener;
 /**
- * typeformat: T.name, where T is: \
- * p: Pointer \
- * i: int \
- * s: String \
- * d%d|%x: data and it's length\
- * v: Pointer => Value \
- * w: Pointer => Pointer => Value \
+ * typeformat: T.name, where T is:
+ * p: Pointer
+ * i: int
+ * s: String
+ * d%d|%x: data and it's length
+ * v: Pointer => Value
+ * w: Pointer => Pointer => Value
  * example: traceFunction(null, 'open', 'i.fd', ['s.name', 'p.flag'])
  */
 export declare function traceFunction(libnameOrFuncaddr: string | NativePointerValue | null, funcName: string, retType: string | string[], argTypes: string[], hooks?: ScriptInvocationListenerCallbacks): InvocationListener;
@@ -48,3 +63,4 @@ export declare function showDiasm(pc: NativePointer): void;
 export declare function traceExecBlockByStalkerAt(addr: NativePointer, onExecBlock: (ctx: CpuContext, block: any[]) => void): void;
 export declare function showNativeExecption(handler?: ExceptionHandlerCallback): void;
 export declare function setThreadStackRangeNames(): void;
+export {};

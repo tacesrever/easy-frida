@@ -1,6 +1,6 @@
 
 const apiFunctions: {
-    [index: string]: [string, string[]]
+    [index: string]: [NativeFunctionReturnType, NativeFunctionArgumentType[]];
 } = {
     il2cpp_free: ['pointer', ['pointer']],
     il2cpp_domain_get: ['pointer', []],
