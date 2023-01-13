@@ -5,7 +5,7 @@
     "main": "index.js",
     "author": "tacesrever",
     "dependencies": {
-        "@types/frida-gum": "^18.0.0",
+        "@types/frida-gum": "^18.3.0",
         "@types/node": "^16.4.8"
     }
 }

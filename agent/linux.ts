@@ -1,36 +1,3 @@
-import { importfunc } from './native';
-
-export function readFile(filePath: string) {
-    const open = importfunc(null, "open", 'int', ['string', 'int']);
-    const read = importfunc(null, "read", 'uint', ['int', 'pointer', 'uint']);
-    const lseek = importfunc(null, "lseek", 'int', ['int', 'int', 'int']);
-    const close = importfunc(null, "close", 'int', ['int']);
-    const malloc = importfunc(null, "malloc", 'pointer', ['uint']);
-    const realloc = importfunc(null, "realloc", 'pointer', ['pointer', 'uint']);
-    
-    const fd = open(filePath, 0);
-    
-    let size = lseek(fd, 0, 2) as number;
-    if(size > 0) {
-        const base = malloc(size + 0x10) as NativePointer;
-        lseek(fd, 0, 0);
-        read(fd, base, size);
-        close(fd);
-        return {base, size};
-    }
-    const chunkSize = 1024;
-    let base = malloc(chunkSize) as NativePointer;
-    let tsize = read(fd, base, chunkSize) as number;
-    let offptr = base;
-    while(tsize === chunkSize) {
-        size += tsize;
-        offptr = base.add(size);
-        base = realloc(base, size + chunkSize) as NativePointer;
-        tsize = read(fd, offptr, chunkSize) as number;
-    }
-    if(tsize >= 0) size += tsize;
-    return {base, size};
-}
 
 function elfid(base: NativePointer) {
     return {
@@ -147,8 +114,8 @@ export function findElfSegment(moduleOrName: string | Module, segName: string) {
     }
     else module = moduleOrName;
     if(module) {
-        const mfile = readFile(module.path);
-        const base = mfile.base;
+        const mfile = File.readAllBytes(module.path);
+        const base = mfile.unwrap();
         const header = ELFHeader(base);
 
         const SHTbase = base.add(header.shoff);
@@ -165,57 +132,19 @@ export function findElfSegment(moduleOrName: string | Module, segName: string) {
     }
 }
 
-export function enumerateRanges() {
-    const fopen = importfunc(null, "fopen", 'pointer', ['string', 'string']);
-    const fgets = importfunc(null, "fgets", 'pointer', ['pointer', 'int', 'pointer']);
-    const fclose = importfunc(null, "fclose", 'int', ['pointer']);
-    let mapfile = fopen("/proc/self/maps", "r");
-    let buffer = Memory.alloc(2048);
-    let r = fgets(buffer, 2048, mapfile) as NativePointer;
-    let result = [];
-    let line = "";
-    while(!r.isNull()) {
-        line = buffer.readCString();
-        let range: any = {};
-        let start = line.indexOf('-');
-        let end = line.indexOf(' ');
-        range.base = ptr(parseInt(line.slice(0, start), 16));
-        range.end = ptr(parseInt(line.slice(start+1, end), 16));
-        range.size = parseInt(range.end.sub(range.base));
-        start = end + 1;
-        end = start + 4;
-        range.prots = line.slice(start, end);
-        start = end + 1;
-        end = line.indexOf(' ', start);
-        range.fileOffset = parseInt(line.slice(start, end), 16);
-        start = line.indexOf(' ', end + 1);
-        end = line.indexOf(' ', start + 1);
-        range.fileSize = parseInt(line.slice(start, end));
-        while(end < line.length && line[end] == " ") end++;
-        range.name = line.substr(end).trim();
-        result.push(range);
-        r = fgets(buffer, 2048, mapfile) as NativePointer;
-    }
-    fclose(mapfile);
-    return result;
-}
-
 export function heapSearch(pattern: string) {
-    
-    let ranges = enumerateRanges();
+    let ranges = Process.enumerateMallocRanges();
     let result: MemoryScanMatch[] = [];
     ranges.forEach(function(range) {
-        if(range.name[0] == "[" && range.name.indexOf("alloc") > 0) {
-            result = result.concat(Memory.scanSync(range.base, range.size, pattern));
-        }
+        result = result.concat(Memory.scanSync(range.base, range.size, pattern));
     });
     return result;
 }
 
 export function dumplib(name: string, outfile: string) {
     const lib = Process.findModuleByName(name);
-    const libfile = readFile(lib.path);
-    const filebase = libfile.base;
+    const libfile = File.readAllBytes(lib.path);
+    const filebase = libfile.unwrap();
 
     const membase = Memory.alloc(lib.size + 1024*1024);
     Memory.protect(lib.base, lib.size, "rwx");

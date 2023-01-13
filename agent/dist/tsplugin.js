@@ -1,32 +1,10 @@
-"use strict";
-var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
-    if (k2 === undefined) k2 = k;
-    Object.defineProperty(o, k2, { enumerable: true, get: function() { return m[k]; } });
-}) : (function(o, m, k, k2) {
-    if (k2 === undefined) k2 = k;
-    o[k2] = m[k];
-}));
-var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
-    Object.defineProperty(o, "default", { enumerable: true, value: v });
-}) : function(o, v) {
-    o["default"] = v;
-});
-var __importStar = (this && this.__importStar) || function (mod) {
-    if (mod && mod.__esModule) return mod;
-    var result = {};
-    if (mod != null) for (var k in mod) if (k !== "default" && Object.prototype.hasOwnProperty.call(mod, k)) __createBinding(result, mod, k);
-    __setModuleDefault(result, mod);
-    return result;
-};
-Object.defineProperty(exports, "__esModule", { value: true });
-exports.enable = void 0;
 // https://github.com/tacesrever/frida-tsplugin
-const http = __importStar(require("http"));
-const url = __importStar(require("url"));
-const qs = __importStar(require("querystring"));
+import * as http from 'http';
+import * as url from 'url';
+import * as qs from 'querystring';
 const routeMap = {};
 let wrapperProps = [];
-function enable(listenPort = 28042) {
+export function enable(listenPort = 28042) {
     const server = http.createServer(function (req, res) {
         const uri = url.parse(req.url);
         const handler = routeMap[uri.pathname];
@@ -51,7 +29,6 @@ function enable(listenPort = 28042) {
         server.listen(listenPort);
     }
 }
-exports.enable = enable;
 routeMap["/getJavaClassInfo"] = function (req, res) {
     const uri = url.parse(req.url);
     const query = qs.parse(uri.query);

@@ -1,15 +1,19 @@
 
-import fs = require('fs');
-import path = require('path');
-import process = require('process');
-import { format } from 'util';
+import fs from 'fs'
+import path from 'path'
+import process from 'process'
+import iconv from 'iconv-lite'
+import { format } from 'util'
+import TypedEmitter from "typed-emitter"
 
-import AsyncLock = require('async-lock');
-import frida = require('frida');
-import compiler = require('frida-compile');
+import AsyncLock from 'async-lock'
+import frida from 'frida'
+import * as compiler from 'frida-compile'
+import { getNodeSystem } from 'frida-compile/dist/system/node.js'
+import ts from 'frida-compile/ext/typescript.js'
 
-import { FridaRepl } from './frida_repl';
-import { REPLCommand, REPLCommandAction, ReplOptions, REPLServer } from 'repl';
+import { FridaRepl } from './frida_repl.js'
+import { REPLCommand, REPLCommandAction } from 'repl'
 
 const lock = new AsyncLock();
 const sleep = (time: number) => new Promise((resolve) => setTimeout(resolve, time));
@@ -23,23 +27,21 @@ interface FridaProcess {
 }
 
 export default class EasyFrida {
-    compileOptions = {
-        bytecode: false,
-        sourcemap: true,
-        compress: false,
-        useAbsolutePaths: true
-    }
-    baseDir = process.cwd()
-    agentProjectDir = path.join(this.baseDir, "agent/")
-    outFile = path.join(this.baseDir, "agent.js")
-    logFile?: string
-    scriptFile?: string
-    device?: frida.Device
+
+    enableDebugger = false
     enableChildGating = false
     enableSpawnGating = false
-    enableDebugger = false
     resumeAfterScriptLoaded = true
+    ioEncoding: BufferEncoding | 'gbk' = 'utf-8'
+    logFile?: string
     onMessage: frida.ScriptMessageHandler = null
+
+    device?: frida.Device
+    compileOptions: compiler.Options
+
+    private baseDir = process.cwd()
+    private agentProjectDir = path.join(this.baseDir, "agent/")
+    private outFile = path.join(this.baseDir, "agent.js")
     private curProc: FridaProcess = null
     private procList: FridaProcess[] = []
     private interacting = false
@@ -49,8 +51,21 @@ export default class EasyFrida {
     private remoteEvalCallbacks: {
         [index: string]: (result: any) => void
     } = {}
-    private watcher: any
+    private watcher: TypedEmitter<compiler.WatcherEvents>
+
     constructor(public target: number | string | string[], public location: 'usb' | 'local' | 'remote', public targetos: 'win' | 'linux' | 'android' | 'ios', public remoteAddr?: string) {
+        const system = getNodeSystem();
+        system.write = this.log;
+        system.clearScreen = undefined;
+        this.compileOptions = {
+            projectRoot: this.agentProjectDir,
+            entrypoint: "",
+            assets: compiler.queryDefaultAssets(this.agentProjectDir, system),
+            system: system,
+            sourceMaps: "included",
+            compression: "none",
+            onDiagnostic: this.onCompileDiagnostic
+        }
     }
 
     run(target = this.target): Promise<boolean> {
@@ -61,8 +76,9 @@ export default class EasyFrida {
             this.getDevice()
             .then(device => {
                 this.log(`[+] Spawning ${target}...`);
-
-                device.spawn(target)
+                let SpawnOptions: frida.SpawnOptions = {};
+                if(this.targetos == 'win') SpawnOptions.stdio = frida.Stdio.Pipe;
+                device.spawn(target, SpawnOptions)
                 .then(pid => {
                     this.attach(pid).then(ret => {
                         this.curProc.name = target instanceof Array ? target.join(" ") : target;
@@ -75,6 +91,10 @@ export default class EasyFrida {
                 })
             })
         });
+    }
+
+    Input(data: Buffer, target = this.curProc.session.pid): Promise<void> {
+        return this.device.input(target, data);
     }
 
     attach = (target = this.target): Promise<boolean> => {
@@ -126,7 +146,7 @@ export default class EasyFrida {
     /**
      * Attach to or spawn the target and inject ts/js file into it.
      */
-    inject(file = this.scriptFile, target = this.target) {
+    inject(file: string, target = this.target) {
         return this.attachOrRun(target).then(attached => {
             if(attached) {
                 this.compile(file)
@@ -137,6 +157,7 @@ export default class EasyFrida {
     }
 
     resume(pid?: number) {
+        this.log("[+] resuming...");
         if(pid === undefined) 
             this.device.resume(this.curProc.session.pid).catch(()=>{});
         else
@@ -155,6 +176,7 @@ export default class EasyFrida {
                 device.childAdded.connect(this.onChild);
                 device.processCrashed.connect(this.onCrashed);
                 device.spawnAdded.connect(this.onSpawn);
+                if(this.targetos == "win") device.output.connect(this.onOutput);
                 if(this.enableSpawnGating) device.enableSpawnGating();
                 resolve(device);
             }
@@ -174,7 +196,6 @@ export default class EasyFrida {
 
     private attachToSession = (session: frida.Session) => {
         if(this.enableChildGating) session.enableChildGating();
-        if(this.enableDebugger) session.enableDebugger();
 
         this.log(`[+] Attached to ${session.pid}.`);
         
@@ -249,15 +270,27 @@ export default class EasyFrida {
      * @param file path of the js/ts file
      * @output will at this.outFile
      */
-    compile(file = this.scriptFile) {
+    compile(file: string): Promise<void> {
         return new Promise(resolve => {
             process.chdir(this.agentProjectDir);
             lock.acquire('compile', async () => {
-                await compiler.build(path.join(this.baseDir, file), this.outFile, this.compileOptions)
-                .then(resolve)
+                this.compileOptions.entrypoint = file;
+                const bundle = compiler.build(this.compileOptions);
+                fs.writeFileSync(this.outFile, bundle!);
+                resolve();
             }, null, null);
             process.chdir(this.baseDir);
         })
+    }
+
+    onCompileDiagnostic = (diagnostic: ts.Diagnostic) => {
+        if (diagnostic.file !== undefined) {
+            const { line, character } = ts.getLineAndCharacterOfPosition(diagnostic.file, diagnostic.start!);
+            const message = ts.flattenDiagnosticMessageText(diagnostic.messageText, "\n");
+            this.log(`${diagnostic.file.fileName} (${line + 1},${character + 1}): ${message}`);
+        } else {
+            this.log(ts.flattenDiagnosticMessageText(diagnostic.messageText, "\n"));
+        }
     }
 
     /**
@@ -269,6 +302,7 @@ export default class EasyFrida {
         const curProc = this.curProc;
         const source = fs.readFileSync(file, "utf-8");
         const script = await curProc.session.createScript(source);
+        if(this.enableDebugger) await script.enableDebugger();
         script.logHandler = (level, text) => {
             this.log(text);
         }
@@ -294,24 +328,18 @@ export default class EasyFrida {
      * @param file path of main ts/js file
      * @param target target process name, default is this.target
      */
-    async watch(file = this.scriptFile, target = this.target) {
+    async watch(file: string, target = this.target) {
         await this.attachOrRun(target);
         process.chdir(this.agentProjectDir);
-        this.watcher = compiler.watch(path.join(this.baseDir, file), this.outFile, this.compileOptions)
-        .on('compile', details => {
-            const duration = details.duration;
-            this.log(`[+] Compile fin (${duration} ms)`);
+        this.compileOptions.entrypoint = file;
+        this.watcher = compiler.watch(this.compileOptions)
+        .on('bundleUpdated', bundle => {
+            fs.writeFileSync(this.outFile, bundle);
             if(this.interacting && this.scopeCount > 0) {
                 this.log(`[!] can't reload when within local scope, please quit scope and retry.`);
             } else {
-                // wait for flush
-                setTimeout(this.reload.bind(this), 50);
+                this.reload();
             }
-        })
-        .on('error', error => {
-            const message = error.toString();
-            this.log(message);
-            this.log("[!] Compilation failed.");
         });
         process.chdir(this.baseDir);
         return this.watcher;
@@ -434,8 +462,17 @@ export default class EasyFrida {
 
     private onCrashed = (crash: frida.Crash) => {
         this.log(crash.summary);
-        this.log(crash.report);
-        this.log(crash.parameters);
+        // this.log(crash.report);
+        // this.log(crash.parameters);
+    }
+
+    private onOutput = (pid: number, fd: number, data: Buffer) => {
+        if(this.ioEncoding == 'gbk') {
+            this.log(iconv.decode(data, 'gbk'));
+        }
+        else {
+            this.log(data.toString(this.ioEncoding));
+        }
     }
 
     private log = (message: any) => {

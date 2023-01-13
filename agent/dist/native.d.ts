@@ -9,16 +9,16 @@ export declare function d(address: number | NativePointer, size?: number): void;
  * warpper for NativeFunction, add 'string' type.
  * slower, just for convenience.
  */
-declare type NativeFunctionReturnTypeMapEx = NativeFunctionReturnTypeMap & {
+type NativeFunctionReturnTypeMapEx = NativeFunctionReturnTypeMap & {
     string: string;
 };
-declare type NativeFunctionReturnTypeEx = RecursiveKeysOf<NativeFunctionReturnTypeMapEx>;
-declare type NativeFunctionReturnValueEx = RecursiveValuesOf<NativeFunctionReturnTypeMapEx>;
-declare type NativeFunctionArgumentTypeMapEx = NativeFunctionArgumentTypeMap & {
+type NativeFunctionReturnTypeEx = RecursiveKeysOf<NativeFunctionReturnTypeMapEx>;
+type NativeFunctionReturnValueEx = RecursiveValuesOf<NativeFunctionReturnTypeMapEx>;
+type NativeFunctionArgumentTypeMapEx = NativeFunctionArgumentTypeMap & {
     string: string;
 };
-declare type NativeFunctionArgumentTypeEx = RecursiveKeysOf<NativeFunctionArgumentTypeMapEx>;
-declare type NativeFunctionArgumentValueEx = RecursiveValuesOf<NativeFunctionArgumentTypeMapEx>;
+type NativeFunctionArgumentTypeEx = RecursiveKeysOf<NativeFunctionArgumentTypeMapEx>;
+type NativeFunctionArgumentValueEx = RecursiveValuesOf<NativeFunctionArgumentTypeMapEx>;
 interface NativeFunctionEx<RetType extends NativeFunctionReturnValueEx, ArgTypes extends NativeFunctionArgumentValueEx[] | []> extends NativePointer {
     (...args: ArgTypes): RetType;
     apply(thisArg: NativePointerValue | null | undefined, args: ArgTypes): RetType;

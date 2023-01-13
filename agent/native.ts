@@ -395,7 +395,8 @@ export function showThread(tid: number) {
 
 export function showCpuContext(context: CpuContext) {
     let i = 0, regsinfo = "";
-    for(const regname of Object.getOwnPropertyNames(context)) {
+    for(const regname of Object.getOwnPropertyNames((<any>context).__proto__)) {
+        if(regname === "toJSON") continue;
         const module = Process.findModuleByAddress(context[regname]);
         const range = Process.findRangeByAddress(context[regname]);
         

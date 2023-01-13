@@ -1,6 +1,3 @@
-"use strict";
-Object.defineProperty(exports, "__esModule", { value: true });
-exports.isServer = exports.rpcCall = exports.interact = void 0;
 Object.defineProperty(String.prototype, "toMatchPattern", {
     value: function () {
         let pattern = [];
@@ -10,7 +7,7 @@ Object.defineProperty(String.prototype, "toMatchPattern", {
         return pattern.join(' ');
     }
 });
-exports.interact = '\
+export let interact = '\
 if(typeof disableInteract === "undefined" || disableInteract === false) {\
     global.disableInteract = false;\
     var interactCode, result, eventType = "scope";\
@@ -43,7 +40,7 @@ if(typeof disableInteract === "undefined" || disableInteract === false) {\
     console.log("[+] Quit local scope.");\
 }\
 ';
-function rpcCall(funcName, args, noreturn) {
+export function rpcCall(funcName, args, noreturn) {
     return new Promise(resolve => {
         send({ "type": "rpc", "function": funcName, "args": args, "noreturn": noreturn });
         if (noreturn)
@@ -53,7 +50,7 @@ function rpcCall(funcName, args, noreturn) {
         });
     });
 }
-exports.rpcCall = rpcCall;
+export let isServer;
 let agentName = 'frida-agent';
 if (Process.pointerSize === 4)
     agentName += '-32';
@@ -72,7 +69,7 @@ switch (Process.platform) {
         break;
 }
 if (Process.findModuleByName(agentName) !== null)
-    exports.isServer = true;
+    isServer = true;
 const globalEval = eval;
 rpc.exports.eval = (code) => {
     return new Promise(resolve => {

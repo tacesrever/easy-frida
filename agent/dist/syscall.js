@@ -1,8 +1,5 @@
-"use strict";
-Object.defineProperty(exports, "__esModule", { value: true });
-exports.traceSyscallByStalkerAt = void 0;
 // TODO
-function traceSyscallByStalkerAt(addr) {
+export function traceSyscallByStalkerAt(addr) {
     const once = Interceptor.attach(addr, function () {
         once.detach();
         Interceptor.flush();
@@ -55,5 +52,4 @@ function traceSyscallByStalkerAt(addr) {
         });
     });
 }
-exports.traceSyscallByStalkerAt = traceSyscallByStalkerAt;
 //# sourceMappingURL=syscall.js.map

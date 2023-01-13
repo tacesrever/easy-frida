@@ -1,28 +1,22 @@
-"use strict";
-Object.defineProperty(exports, "__esModule", { value: true });
-exports.Input = exports.traceClass = exports.objToSimpleString = exports.cast = exports.getNativeAddress = exports.showDialog = exports.dumpBacktraceToFile = exports.DumpType = exports.showBacktrace = exports.debugWebView = exports.logScreen = exports.adbLog = exports.avoidConflict = exports.libraryOnLoad = exports.showlibevents = exports.showLogcat = exports.showJavaCaller = exports.javaBacktrace = exports.showJavaBacktrace = void 0;
-const index_1 = require("./index");
-const native_1 = require("./native");
-const linux_1 = require("./linux");
-function showJavaBacktrace() {
+import { interact, isServer } from './index.js';
+import { cprintf, d, importfunc, readStdString } from './native.js';
+import { findElfSegment } from './linux.js';
+export function showJavaBacktrace() {
     console.log(javaBacktrace());
 }
-exports.showJavaBacktrace = showJavaBacktrace;
-function javaBacktrace() {
+export function javaBacktrace() {
     const androidUtilLog = Java.use('android.util.Log');
     const exception = Java.use('java.lang.Exception').$new();
     return androidUtilLog.getStackTraceString(exception);
 }
-exports.javaBacktrace = javaBacktrace;
-function showJavaCaller() {
+export function showJavaCaller() {
     const backtrace = javaBacktrace();
     console.log(backtrace.split("\n")[2]);
 }
-exports.showJavaCaller = showJavaCaller;
 /**
  * show android log at console.
  */
-function showLogcat(level = 255) {
+export function showLogcat(level = 255) {
     const levelstrs = ['F', 'E', 'W', 'I', 'D', 'V'];
     const logPrintAddr = Module.findExportByName(null, "__android_log_print");
     if (logPrintAddr === null)
@@ -36,12 +30,11 @@ function showLogcat(level = 255) {
                 const fmtstr = args[2].readCString();
                 if (msglevel < levelstrs.length)
                     msglevel = levelstrs[msglevel];
-                console.log(`[${tid}-${msglevel}:${tag}]`, native_1.cprintf(fmtstr, args, 3));
+                console.log(`[${tid}-${msglevel}:${tag}]`, cprintf(fmtstr, args, 3));
             }
         }
     });
 }
-exports.showLogcat = showLogcat;
 ;
 let monitor_libs = [];
 let call_constructors;
@@ -50,8 +43,8 @@ let call_constructors;
  * callback(false) when .init_array funcs not called,
  * callback(true) after.
  */
-const sleep = native_1.importfunc("libc.so", "sleep", "void", ["int"]);
-function showlibevents(timeout = 0) {
+const sleep = importfunc("libc.so", "sleep", "void", ["int"]);
+export function showlibevents(timeout = 0) {
     const address = DebugSymbol.getFunctionByName("__dl__ZN6soinfo17call_constructorsEv");
     let work_around_b_24465209 = true;
     if (Process.arch == "arm64")
@@ -80,21 +73,20 @@ function showlibevents(timeout = 0) {
             this.libname = libname;
             console.log(`[${tid}] init ${libname} ${base}`);
             if (timeout == -1)
-                eval(index_1.interact);
+                eval(interact);
             else if (timeout > 0)
                 sleep(timeout);
         },
         onLeave: function () {
             console.log(`[${this.tid}] ${this.libname} init finished`);
             if (timeout == -1)
-                eval(index_1.interact);
+                eval(interact);
             else if (timeout > 0)
                 sleep(timeout);
         }
     });
 }
-exports.showlibevents = showlibevents;
-function libraryOnLoad(libname, callback) {
+export function libraryOnLoad(libname, callback) {
     monitor_libs.push({ libname, callback });
     if (call_constructors !== undefined)
         return;
@@ -148,17 +140,16 @@ function libraryOnLoad(libname, callback) {
     //     }
     // });
 }
-exports.libraryOnLoad = libraryOnLoad;
 const nullCallBack = new NativeCallback(() => 0, 'int', []);
 /**
  * when gadget already injected and use server, this should be called.
  */
-function avoidConflict(gadgetName = "libadirf.so") {
-    if (index_1.isServer) {
+export function avoidConflict(gadgetName = "libadirf.so") {
+    if (isServer) {
         libraryOnLoad(gadgetName, function (inited) {
             if (inited)
                 return;
-            const initseg = linux_1.findElfSegment(gadgetName, ".init_array");
+            const initseg = findElfSegment(gadgetName, ".init_array");
             if (initseg === null)
                 return;
             Memory.protect(initseg.addr, initseg.size, 'rw-');
@@ -171,8 +162,7 @@ function avoidConflict(gadgetName = "libadirf.so") {
         });
     }
 }
-exports.avoidConflict = avoidConflict;
-function adbLog(...args) {
+export function adbLog(...args) {
     Java.perform(function () {
         const Log = Java.use("android.util.Log");
         let logstr = "";
@@ -183,11 +173,10 @@ function adbLog(...args) {
         Log.d("frida", logstr);
     });
 }
-exports.adbLog = adbLog;
 /**
  * log click and activity resume event
  */
-function logScreen() {
+export function logScreen() {
     Java.perform(function () {
         const View = Java.use("android.view.View");
         const Activity = Java.use("android.app.Activity");
@@ -228,11 +217,10 @@ function logScreen() {
         };
     });
 }
-exports.logScreen = logScreen;
 /**
  * call setWebContentsDebuggingEnabled when WebView created.
  */
-function debugWebView() {
+export function debugWebView() {
     Java.perform(function () {
         const WebView = Java.use("android.webkit.WebView");
         WebView.$init.overload('android.content.Context', 'android.util.AttributeSet', 'int', 'int', 'java.util.Map', 'boolean').implementation = function (...args) {
@@ -242,7 +230,6 @@ function debugWebView() {
         };
     });
 }
-exports.debugWebView = debugWebView;
 // ref: cs.android.com
 // system/core/libunwindstack/include/unwindstack/Ucontext{arch}.h
 // system/core/libunwindstack/include/unwindstack/Machine{arch}.h
@@ -283,7 +270,7 @@ tmpStdString.writeByteArray(new Array(0x20).fill(0));
 /**
  * show backtrace using libbacktrace in android.
  */
-function showBacktrace(tidOrContext) {
+export function showBacktrace(tidOrContext) {
     let tid, context;
     let BacktraceCreate;
     let Unwind;
@@ -298,19 +285,19 @@ function showBacktrace(tidOrContext) {
         }
         if (Process.arch === 'arm') {
             // Backtrace.Create
-            BacktraceCreate = native_1.importfunc("libbacktrace.so", "_ZN9Backtrace6CreateEiiP12BacktraceMap", 'pointer', ['int', 'int', 'pointer']);
+            BacktraceCreate = importfunc("libbacktrace.so", "_ZN9Backtrace6CreateEiiP12BacktraceMap", 'pointer', ['int', 'int', 'pointer']);
             // BacktraceCurrent.Unwind
-            Unwind = native_1.importfunc("libbacktrace.so", "_ZN16BacktraceCurrent6UnwindEjPv", 'bool', ['pointer', 'int', 'pointer']);
+            Unwind = importfunc("libbacktrace.so", "_ZN16BacktraceCurrent6UnwindEjPv", 'bool', ['pointer', 'int', 'pointer']);
             // Backtrace.FormatFrameData
-            FormatFrameData = native_1.importfunc("libbacktrace.so", "_ZN9Backtrace15FormatFrameDataEj", 'pointer', ['pointer', 'pointer', 'int']);
+            FormatFrameData = importfunc("libbacktrace.so", "_ZN9Backtrace15FormatFrameDataEj", 'pointer', ['pointer', 'pointer', 'int']);
         }
         else if (Process.arch === 'arm64') {
             // Backtrace.Create
-            BacktraceCreate = native_1.importfunc("libbacktrace.so", "_ZN9Backtrace6CreateEiiP12BacktraceMap", 'pointer', ['int', 'int', 'pointer']);
+            BacktraceCreate = importfunc("libbacktrace.so", "_ZN9Backtrace6CreateEiiP12BacktraceMap", 'pointer', ['int', 'int', 'pointer']);
             // BacktraceCurrent.Unwind
-            Unwind = native_1.importfunc("libbacktrace.so", "_ZN16BacktraceCurrent6UnwindEmPv", 'bool', ['pointer', 'int', 'pointer']);
+            Unwind = importfunc("libbacktrace.so", "_ZN16BacktraceCurrent6UnwindEmPv", 'bool', ['pointer', 'int', 'pointer']);
             // Backtrace.FormatFrameData
-            FormatFrameData = native_1.importfunc("libbacktrace.so", "_ZN9Backtrace15FormatFrameDataEm", 'pointer', ['pointer', 'pointer', 'int']);
+            FormatFrameData = importfunc("libbacktrace.so", "_ZN9Backtrace15FormatFrameDataEm", 'pointer', ['pointer', 'pointer', 'int']);
         }
     }
     if (tidOrContext === undefined) {
@@ -354,29 +341,28 @@ function showBacktrace(tidOrContext) {
     let i = 0;
     while (1) {
         threadBacktracer.FormatFrameData(tmpStdString, i);
-        const frameMsg = native_1.readStdString(tmpStdString);
+        const frameMsg = readStdString(tmpStdString);
         if (frameMsg === "")
             break;
         console.log(frameMsg);
         i += 1;
     }
 }
-exports.showBacktrace = showBacktrace;
-var DumpType;
+export var DumpType;
 (function (DumpType) {
     DumpType[DumpType["NativeBacktrace"] = 0] = "NativeBacktrace";
     DumpType[DumpType["Tombstone"] = 1] = "Tombstone";
     DumpType[DumpType["JavaBacktrace"] = 2] = "JavaBacktrace";
     DumpType[DumpType["AnyIntercept"] = 3] = "AnyIntercept";
-})(DumpType = exports.DumpType || (exports.DumpType = {}));
+})(DumpType || (DumpType = {}));
 ;
 let _dump_backtrace_to_file = null;
-const open = native_1.importfunc("libc.so", "open", 'int', ['string', 'int', 'int']);
-const close = native_1.importfunc("libc.so", "close", 'int', ['int']);
+const open = importfunc("libc.so", "open", 'int', ['string', 'int', 'int']);
+const close = importfunc("libc.so", "close", 'int', ['int']);
 /**
  * dump backtrace using libdebuggerd_client.
  */
-function dumpBacktraceToFile(tid, type, outfile) {
+export function dumpBacktraceToFile(tid, type, outfile) {
     if (_dump_backtrace_to_file === null) {
         let address = Module.findExportByName("libdebuggerd_client.so", "_Z22dump_backtrace_to_filei17DebuggerdDumpTypei");
         if (address === null)
@@ -388,8 +374,7 @@ function dumpBacktraceToFile(tid, type, outfile) {
     _dump_backtrace_to_file(tid, type, fd);
     close(fd);
 }
-exports.dumpBacktraceToFile = dumpBacktraceToFile;
-function showDialog(activityContext, message) {
+export function showDialog(activityContext, message) {
     Java.scheduleOnMainThread(function () {
         const AlertDialogBuilder = Java.use("android.app.AlertDialog$Builder");
         const JavaString = Java.use("java.lang.String");
@@ -399,8 +384,7 @@ function showDialog(activityContext, message) {
         builder.create().show();
     });
 }
-exports.showDialog = showDialog;
-function getNativeAddress(methodWarpper) {
+export function getNativeAddress(methodWarpper) {
     let params = methodWarpper._p;
     if (params === undefined && methodWarpper._o) {
         if (methodWarpper._o.length === 1)
@@ -415,18 +399,16 @@ function getNativeAddress(methodWarpper) {
     if (Process.arch === "arm64")
         return methodId.add(0x18).readPointer();
     console.log("not impl");
-    native_1.d(methodId);
-    eval(index_1.interact);
+    d(methodId);
+    eval(interact);
 }
-exports.getNativeAddress = getNativeAddress;
-function cast(obj) {
+export function cast(obj) {
     if (obj instanceof Object && obj.$className) {
         return Java.cast(obj, Java.use(obj.$className));
     }
     return obj;
 }
-exports.cast = cast;
-function objToSimpleString(obj) {
+export function objToSimpleString(obj) {
     let resultStr = "";
     if (obj === 0)
         return "0";
@@ -447,8 +429,7 @@ function objToSimpleString(obj) {
     }
     return resultStr;
 }
-exports.objToSimpleString = objToSimpleString;
-function traceClass(className) {
+export function traceClass(className) {
     const clz = Java.use(className);
     const methods = clz.class.getDeclaredMethods();
     for (const method of methods) {
@@ -471,9 +452,8 @@ function traceClass(className) {
         }
     };
 }
-exports.traceClass = traceClass;
 // rewrite from /system/framework/input.jar
-var Input;
+export var Input;
 (function (Input) {
     function tap(coords) {
         Java.perform(() => {
@@ -513,5 +493,5 @@ var Input;
                 return id;
         }
     }
-})(Input = exports.Input || (exports.Input = {}));
+})(Input || (Input = {}));
 //# sourceMappingURL=android.js.map

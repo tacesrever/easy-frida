@@ -1,5 +1,5 @@
 /// <reference types="node" />
-import repl = require('repl');
+import repl from 'repl';
 export declare class FridaRepl {
     private localEval;
     private remoteEval;

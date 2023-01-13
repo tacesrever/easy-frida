@@ -1,38 +1,3 @@
-"use strict";
-Object.defineProperty(exports, "__esModule", { value: true });
-exports.dumplib = exports.heapSearch = exports.enumerateRanges = exports.findElfSegment = exports.ELFHeader = exports.readFile = void 0;
-const native_1 = require("./native");
-function readFile(filePath) {
-    const open = native_1.importfunc(null, "open", 'int', ['string', 'int']);
-    const read = native_1.importfunc(null, "read", 'uint', ['int', 'pointer', 'uint']);
-    const lseek = native_1.importfunc(null, "lseek", 'int', ['int', 'int', 'int']);
-    const close = native_1.importfunc(null, "close", 'int', ['int']);
-    const malloc = native_1.importfunc(null, "malloc", 'pointer', ['uint']);
-    const realloc = native_1.importfunc(null, "realloc", 'pointer', ['pointer', 'uint']);
-    const fd = open(filePath, 0);
-    let size = lseek(fd, 0, 2);
-    if (size > 0) {
-        const base = malloc(size + 0x10);
-        lseek(fd, 0, 0);
-        read(fd, base, size);
-        close(fd);
-        return { base, size };
-    }
-    const chunkSize = 1024;
-    let base = malloc(chunkSize);
-    let tsize = read(fd, base, chunkSize);
-    let offptr = base;
-    while (tsize === chunkSize) {
-        size += tsize;
-        offptr = base.add(size);
-        base = realloc(base, size + chunkSize);
-        tsize = read(fd, offptr, chunkSize);
-    }
-    if (tsize >= 0)
-        size += tsize;
-    return { base, size };
-}
-exports.readFile = readFile;
 function elfid(base) {
     return {
         magic: base.readByteArray(4),
@@ -43,7 +8,7 @@ function elfid(base) {
         abiversion: base.add(8).readU8()
     };
 }
-function ELFHeader(base) {
+export function ELFHeader(base) {
     const header = {};
     let offset = 0;
     header.id = elfid(base);
@@ -139,8 +104,7 @@ function ELFHeader(base) {
     header.SectionHeader = SectionHeader;
     return header;
 }
-exports.ELFHeader = ELFHeader;
-function findElfSegment(moduleOrName, segName) {
+export function findElfSegment(moduleOrName, segName) {
     let module;
     if (typeof (moduleOrName) === 'string') {
         module = Process.findModuleByName(moduleOrName);
@@ -148,8 +112,8 @@ function findElfSegment(moduleOrName, segName) {
     else
         module = moduleOrName;
     if (module) {
-        const mfile = readFile(module.path);
-        const base = mfile.base;
+        const mfile = File.readAllBytes(module.path);
+        const base = mfile.unwrap();
         const header = ELFHeader(base);
         const SHTbase = base.add(header.shoff);
         const strSHT = header.SectionHeader(SHTbase.add(header.shstrndx * header.shentsize));
@@ -164,58 +128,18 @@ function findElfSegment(moduleOrName, segName) {
         return null;
     }
 }
-exports.findElfSegment = findElfSegment;
-function enumerateRanges() {
-    const fopen = native_1.importfunc(null, "fopen", 'pointer', ['string', 'string']);
-    const fgets = native_1.importfunc(null, "fgets", 'pointer', ['pointer', 'int', 'pointer']);
-    const fclose = native_1.importfunc(null, "fclose", 'int', ['pointer']);
-    let mapfile = fopen("/proc/self/maps", "r");
-    let buffer = Memory.alloc(2048);
-    let r = fgets(buffer, 2048, mapfile);
-    let result = [];
-    let line = "";
-    while (!r.isNull()) {
-        line = buffer.readCString();
-        let range = {};
-        let start = line.indexOf('-');
-        let end = line.indexOf(' ');
-        range.base = ptr(parseInt(line.slice(0, start), 16));
-        range.end = ptr(parseInt(line.slice(start + 1, end), 16));
-        range.size = parseInt(range.end.sub(range.base));
-        start = end + 1;
-        end = start + 4;
-        range.prots = line.slice(start, end);
-        start = end + 1;
-        end = line.indexOf(' ', start);
-        range.fileOffset = parseInt(line.slice(start, end), 16);
-        start = line.indexOf(' ', end + 1);
-        end = line.indexOf(' ', start + 1);
-        range.fileSize = parseInt(line.slice(start, end));
-        while (end < line.length && line[end] == " ")
-            end++;
-        range.name = line.substr(end).trim();
-        result.push(range);
-        r = fgets(buffer, 2048, mapfile);
-    }
-    fclose(mapfile);
-    return result;
-}
-exports.enumerateRanges = enumerateRanges;
-function heapSearch(pattern) {
-    let ranges = enumerateRanges();
+export function heapSearch(pattern) {
+    let ranges = Process.enumerateMallocRanges();
     let result = [];
     ranges.forEach(function (range) {
-        if (range.name[0] == "[" && range.name.indexOf("alloc") > 0) {
-            result = result.concat(Memory.scanSync(range.base, range.size, pattern));
-        }
+        result = result.concat(Memory.scanSync(range.base, range.size, pattern));
     });
     return result;
 }
-exports.heapSearch = heapSearch;
-function dumplib(name, outfile) {
+export function dumplib(name, outfile) {
     const lib = Process.findModuleByName(name);
-    const libfile = readFile(lib.path);
-    const filebase = libfile.base;
+    const libfile = File.readAllBytes(lib.path);
+    const filebase = libfile.unwrap();
     const membase = Memory.alloc(lib.size + 1024 * 1024);
     Memory.protect(lib.base, lib.size, "rwx");
     Memory.copy(membase, lib.base, lib.size);
@@ -238,5 +162,4 @@ function dumplib(name, outfile) {
     out.write(membase.readByteArray(lib.size + SectionSize + parseInt(strSection.size)));
     out.close();
 }
-exports.dumplib = dumplib;
 //# sourceMappingURL=linux.js.map

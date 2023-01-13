@@ -1,6 +1,3 @@
-"use strict";
-Object.defineProperty(exports, "__esModule", { value: true });
-exports.getApi = void 0;
 const apiFunctions = {
     il2cpp_free: ['pointer', ['pointer']],
     il2cpp_domain_get: ['pointer', []],
@@ -54,7 +51,7 @@ let cachedApi;
 /**
  * get libil2cpp native api functions
  */
-function getApi() {
+export function getApi() {
     if (cachedApi !== undefined)
         return cachedApi;
     const tempApi = Object.create(null);
@@ -72,6 +69,5 @@ function getApi() {
     cachedApi = tempApi;
     return cachedApi;
 }
-exports.getApi = getApi;
 ;
 //# sourceMappingURL=api.js.map

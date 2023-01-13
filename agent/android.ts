@@ -1,7 +1,7 @@
 
-import { interact, isServer } from './index';
-import { cprintf, d, importfunc, readStdString } from './native';
-import { findElfSegment } from './linux';
+import { interact, isServer } from './index.js';
+import { cprintf, d, importfunc, readStdString } from './native.js';
+import { findElfSegment } from './linux.js';
 
 export function showJavaBacktrace() {
     console.log(javaBacktrace());

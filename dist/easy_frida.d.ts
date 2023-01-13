@@ -1,27 +1,26 @@
-import frida = require('frida');
+/// <reference types="node" />
+import TypedEmitter from "typed-emitter";
+import frida from 'frida';
+import * as compiler from 'frida-compile';
+import ts from 'frida-compile/ext/typescript.js';
 import { REPLCommand, REPLCommandAction } from 'repl';
 export default class EasyFrida {
     target: number | string | string[];
     location: 'usb' | 'local' | 'remote';
     targetos: 'win' | 'linux' | 'android' | 'ios';
     remoteAddr?: string;
-    compileOptions: {
-        bytecode: boolean;
-        sourcemap: boolean;
-        compress: boolean;
-        useAbsolutePaths: boolean;
-    };
-    baseDir: string;
-    agentProjectDir: string;
-    outFile: string;
-    logFile?: string;
-    scriptFile?: string;
-    device?: frida.Device;
+    enableDebugger: boolean;
     enableChildGating: boolean;
     enableSpawnGating: boolean;
-    enableDebugger: boolean;
     resumeAfterScriptLoaded: boolean;
+    ioEncoding: BufferEncoding | 'gbk';
+    logFile?: string;
     onMessage: frida.ScriptMessageHandler;
+    device?: frida.Device;
+    compileOptions: compiler.Options;
+    private baseDir;
+    private agentProjectDir;
+    private outFile;
     private curProc;
     private procList;
     private interacting;
@@ -32,13 +31,14 @@ export default class EasyFrida {
     private watcher;
     constructor(target: number | string | string[], location: 'usb' | 'local' | 'remote', targetos: 'win' | 'linux' | 'android' | 'ios', remoteAddr?: string);
     run(target?: string | number | string[]): Promise<boolean>;
+    Input(data: Buffer, target?: number): Promise<void>;
     attach: (target?: string | number | string[]) => Promise<boolean>;
     attachOrRun(target?: string | number | string[]): Promise<boolean>;
     rerun(): void;
     /**
      * Attach to or spawn the target and inject ts/js file into it.
      */
-    inject(file?: string, target?: string | number | string[]): Promise<void>;
+    inject(file: string, target?: string | number | string[]): Promise<void>;
     resume(pid?: number): void;
     getDevice(): Promise<frida.Device>;
     private attachToSession;
@@ -51,7 +51,8 @@ export default class EasyFrida {
      * @param file path of the js/ts file
      * @output will at this.outFile
      */
-    compile(file?: string): Promise<unknown>;
+    compile(file: string): Promise<void>;
+    onCompileDiagnostic: (diagnostic: ts.Diagnostic) => void;
     /**
      * Load a single js file into current attached process
      * @param file path of the js file, default is this.outFile
@@ -63,7 +64,7 @@ export default class EasyFrida {
      * @param file path of main ts/js file
      * @param target target process name, default is this.target
      */
-    watch(file?: string, target?: string | number | string[]): Promise<any>;
+    watch(file: string, target?: string | number | string[]): Promise<TypedEmitter<compiler.WatcherEvents>>;
     /**
      * Start a repl that can eval jscode in remote frida attached process. Use `!jscode` to eval code at local, in which `this` will be the EasyFrida instance.
      * @param finallyKill When exit from repl, target will be killed if true, otherwize only detach. Default value is false.
@@ -91,6 +92,7 @@ export default class EasyFrida {
     private onChild;
     private onSpawn;
     private onCrashed;
+    private onOutput;
     private log;
     /**
      * Detach from all attached process

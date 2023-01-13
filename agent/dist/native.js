@@ -1,16 +1,12 @@
-"use strict";
-Object.defineProperty(exports, "__esModule", { value: true });
-exports.setThreadStackRangeNames = exports.showNativeExecption = exports.traceExecBlockByStalkerAt = exports.showDiasm = exports.showCpuContext = exports.showThread = exports.showThreads = exports.cprintf = exports.readStdString = exports.traceFunction = exports.traceCalled = exports.dumpMem = exports.showAddrInfo = exports.symbolName = exports.setName = exports.importfunc = exports.d = exports.showBacktrace = void 0;
-function showBacktrace(context) {
+export function showBacktrace(context) {
     let bt = Thread.backtrace(context, Backtracer.ACCURATE).map(symbolName).join("\n\t");
     console.log('\t' + bt);
 }
-exports.showBacktrace = showBacktrace;
 /**
  * similar to hexdump,
  * for lazy people who don't want to write "console.log(hexdump(...))" when debuging.
  */
-function d(address, size) {
+export function d(address, size) {
     let p;
     if (address instanceof NativePointer) {
         p = address;
@@ -25,8 +21,7 @@ function d(address, size) {
         console.log(hexdump(p));
     }
 }
-exports.d = d;
-function importfunc(libnameOrFuncaddr, funcName, retType, argTypes, abiOrOptions) {
+export function importfunc(libnameOrFuncaddr, funcName, retType, argTypes, abiOrOptions) {
     let funcAddress;
     if (libnameOrFuncaddr === null || typeof libnameOrFuncaddr === 'string') {
         funcAddress = Module.getExportByName(libnameOrFuncaddr, funcName);
@@ -60,19 +55,17 @@ function importfunc(libnameOrFuncaddr, funcName, retType, argTypes, abiOrOptions
         }
     });
 }
-exports.importfunc = importfunc;
 let customNames = [];
 /**
  * set custom debug symbol name to range.
  * show as name or name+offset.
  */
-function setName(address, size, name) {
+export function setName(address, size, name) {
     if (address instanceof NativePointer)
         address = parseInt(address.toString());
     customNames.push({ address, size, name });
 }
-exports.setName = setName;
-function symbolName(address) {
+export function symbolName(address) {
     let name;
     if (typeof address === 'number')
         address = ptr(address);
@@ -118,11 +111,10 @@ function symbolName(address) {
     }
     return name;
 }
-exports.symbolName = symbolName;
 /**
  * show addrinfo from DebugSymbol.fromAddress, findModuleByAddress and findRangeByAddress.
  */
-function showAddrInfo(address) {
+export function showAddrInfo(address) {
     if (typeof address === 'number')
         address = ptr(address);
     const debugSymbol = DebugSymbol.fromAddress(address);
@@ -133,12 +125,11 @@ function showAddrInfo(address) {
     console.log("\t" + JSON.stringify(module));
     console.log("\t" + JSON.stringify(range));
 }
-exports.showAddrInfo = showAddrInfo;
 ;
 /**
  * dump memory to file.
  */
-function dumpMem(address, size, outname) {
+export function dumpMem(address, size, outname) {
     if (typeof address === 'number')
         address = ptr(address);
     const out = new File(outname, "wb");
@@ -153,7 +144,6 @@ function dumpMem(address, size, outname) {
         Memory.protect(address, size, protection);
     }
 }
-exports.dumpMem = dumpMem;
 ;
 function readNativeArg(handle, name) {
     let type = name[0];
@@ -190,7 +180,7 @@ function readNativeArg(handle, name) {
 function getArgName(name) {
     return name.substring(name.indexOf(".") + 1);
 }
-function traceCalled(libnameOrFuncaddr, funcName) {
+export function traceCalled(libnameOrFuncaddr, funcName) {
     let funcAddr;
     if (!libnameOrFuncaddr || typeof (libnameOrFuncaddr) == 'string') {
         funcAddr = Module.getExportByName(libnameOrFuncaddr, funcName);
@@ -210,7 +200,6 @@ function traceCalled(libnameOrFuncaddr, funcName) {
     };
     return Interceptor.attach(funcAddr, _hooks);
 }
-exports.traceCalled = traceCalled;
 /**
  * typeformat: T.name, where T is:
  * p: Pointer
@@ -221,7 +210,7 @@ exports.traceCalled = traceCalled;
  * w: Pointer => Pointer => Value
  * example: traceFunction(null, 'open', 'i.fd', ['s.name', 'p.flag'])
  */
-function traceFunction(libnameOrFuncaddr, funcName, retType, argTypes, hooks = {}) {
+export function traceFunction(libnameOrFuncaddr, funcName, retType, argTypes, hooks = {}) {
     let funcAddr;
     if (libnameOrFuncaddr === null || typeof (libnameOrFuncaddr) == 'string') {
         funcAddr = Module.getExportByName(libnameOrFuncaddr, funcName);
@@ -291,21 +280,19 @@ function traceFunction(libnameOrFuncaddr, funcName, retType, argTypes, hooks = {
     };
     return Interceptor.attach(funcAddr, _hooks);
 }
-exports.traceFunction = traceFunction;
 ;
 /**
  * https://codeshare.frida.re/@oleavr/read-std-string/
  */
-function readStdString(strHandle) {
+export function readStdString(strHandle) {
     const isTiny = (strHandle.readU8() & 1) === 0;
     if (isTiny) {
         return strHandle.add(1).readUtf8String();
     }
     return strHandle.add(2 * Process.pointerSize).readPointer().readUtf8String();
 }
-exports.readStdString = readStdString;
 ;
-function cprintf(format, args, vaArgIndex = 1, maxSize = 0x1000) {
+export function cprintf(format, args, vaArgIndex = 1, maxSize = 0x1000) {
     let count = 0;
     for (let i = 0; i < format.length - 1; ++i) {
         if (format[i] === '%') {
@@ -325,9 +312,8 @@ function cprintf(format, args, vaArgIndex = 1, maxSize = 0x1000) {
     snprintf(...snprintfArgs);
     return buffer.readUtf8String();
 }
-exports.cprintf = cprintf;
 ;
-function showThreads() {
+export function showThreads() {
     const pthread_getname_np = importfunc(null, "pthread_getname_np", 'int', ['pointer', 'pointer']);
     let threads = Process.enumerateThreads();
     let buf = Memory.alloc(0x100);
@@ -344,8 +330,7 @@ function showThreads() {
         console.log(`[${t.id}:${t.state}] pc:${symbolName(t.context.pc)}`);
     }
 }
-exports.showThreads = showThreads;
-function showThread(tid) {
+export function showThread(tid) {
     const pthread_getname_np = importfunc(null, "pthread_getname_np", 'int', ['pointer', 'pointer']);
     let thread = Process.enumerateThreads().filter(t => t.id === tid)[0];
     if (thread) {
@@ -360,10 +345,11 @@ function showThread(tid) {
         showBacktrace(thread.context);
     }
 }
-exports.showThread = showThread;
-function showCpuContext(context) {
+export function showCpuContext(context) {
     let i = 0, regsinfo = "";
-    for (const regname of Object.getOwnPropertyNames(context)) {
+    for (const regname of Object.getOwnPropertyNames(context.__proto__)) {
+        if (regname === "toJSON")
+            continue;
         const module = Process.findModuleByAddress(context[regname]);
         const range = Process.findRangeByAddress(context[regname]);
         let regnum = parseInt(context[regname]).toString(16);
@@ -393,17 +379,15 @@ function showCpuContext(context) {
         console.log("At", symbolName(context.pc), "??");
     }
 }
-exports.showCpuContext = showCpuContext;
-function showDiasm(pc) {
+export function showDiasm(pc) {
     let inst;
     for (inst = Instruction.parse(pc); !inst.groups.includes('jump'); inst = Instruction.parse(inst.next)) {
         console.log(inst.address, inst.mnemonic, inst.opStr);
     }
     console.log(inst.address, inst.mnemonic, inst.opStr);
 }
-exports.showDiasm = showDiasm;
 //shouldShow: (context: CpuContext) => boolean, shouldBreak: (context: CpuContext) => boolean, shouldStop: (context: CpuContext) => boolean
-function traceExecBlockByStalkerAt(addr, onExecBlock) {
+export function traceExecBlockByStalkerAt(addr, onExecBlock) {
     const compiledBlocks = {};
     const once = Interceptor.attach(addr, function () {
         once.detach();
@@ -455,8 +439,7 @@ function traceExecBlockByStalkerAt(addr, onExecBlock) {
         }
     });
 }
-exports.traceExecBlockByStalkerAt = traceExecBlockByStalkerAt;
-function showNativeExecption(handler) {
+export function showNativeExecption(handler) {
     Process.setExceptionHandler(function (details) {
         if (details.memory) {
             console.log(details.type, details.memory.operation, details.memory.address, "at", details.address);
@@ -469,12 +452,10 @@ function showNativeExecption(handler) {
             return handler(details);
     });
 }
-exports.showNativeExecption = showNativeExecption;
-function setThreadStackRangeNames() {
+export function setThreadStackRangeNames() {
     Process.enumerateThreads().forEach(function (thread) {
         const stackRange = Process.findRangeByAddress(thread.context.sp);
         setName(stackRange.base, stackRange.size, "tid-" + thread.id + "-stack");
     });
 }
-exports.setThreadStackRangeNames = setThreadStackRangeNames;
 //# sourceMappingURL=native.js.map

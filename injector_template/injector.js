@@ -1,9 +1,9 @@
 
-const EasyFrida = require('easy-frida').default;
-
 async function run() {
+    const { default:EasyFrida } = await import("easy-frida");
+
     const proc = new EasyFrida("target", "usb", "android");
-    await proc.watch('agent/main.ts');
+    await proc.watch('main.ts');
     proc.interact();
 }
 

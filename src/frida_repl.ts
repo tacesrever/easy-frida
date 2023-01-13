@@ -1,4 +1,4 @@
-import repl = require('repl');
+import repl from 'repl';
 
 const LocalEvalPrefix = '!';
 const JavaPerformPrefix = 'j:';

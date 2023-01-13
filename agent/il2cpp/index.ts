@@ -1,7 +1,6 @@
 
 import { getApi } from './api';
 import { importfunc, symbolName } from '../native';
-import { readFile } from '../linux';
 
 interface Image {
     name: string | null
@@ -734,16 +733,16 @@ function addrSymbolInit() {
     linkSymbols["map_p"] = Memory.alloc(Process.pointerSize);
     btModule = new CModule(backtraceCode, linkSymbols);
     
-    const fcmdline = readFile("/proc/self/cmdline");
-    const appname = fcmdline.base.readCString();
+    const fcmdline = File.readAllBytes("/proc/self/cmdline");
+    const appname = fcmdline.unwrap().readCString();
     const savefile = `/data/data/${appname}/files/ILBT_method_order`;
     const access = importfunc(null, "access", 'int', ['string', 'int']);
     if(access(savefile, 4) === 0) {
         console.log(`found ${savefile}, loading...`);
-        const method_order = readFile(savefile);
+        const method_order = File.readAllBytes(savefile);
         globalThis._method_order = method_order;
-        linkSymbols["method_order"].writePointer(method_order.base);
-        linkSymbols["method_count"].writePointer(ptr(method_order.size / 4));
+        linkSymbols["method_order"].writePointer(method_order.unwrap());
+        linkSymbols["method_count"].writePointer(ptr(method_order.byteLength / 4));
         const load = new NativeFunction(btModule.load, 'void', []);
         load();
     }
