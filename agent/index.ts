@@ -82,12 +82,12 @@ const globalEval = eval;
 rpc.exports.eval = (code: string) => {
     return new Promise(resolve => {
         let result;
-        if (code.substr(0, 2) !== "j:") {
+        if (code.substring(0, 2) !== "j:") {
             try { result = globalEval(code) } catch(e) { result = e.stack }
             resolve(result);
         } else {
-            setImmediate(() => { Java.perform(function () {
-                try { result = globalEval(code.substr(2)) } catch(e) { result = e.stack }
+            setImmediate(() => { globalThis.Java.perform(function () {
+                try { result = globalEval(code.substring(2)) } catch(e) { result = e.stack }
                 resolve(result);
             })});
         }

@@ -4,13 +4,9 @@ import path from 'path'
 import process from 'process'
 import iconv from 'iconv-lite'
 import { format } from 'util'
-import TypedEmitter from "typed-emitter"
 
 import AsyncLock from 'async-lock'
 import frida from 'frida'
-import * as compiler from 'frida-compile'
-import { getNodeSystem } from 'frida-compile/dist/system/node.js'
-import ts from 'frida-compile/ext/typescript.js'
 
 import { FridaRepl } from './frida_repl.js'
 import { REPLCommand, REPLCommandAction } from 'repl'
@@ -37,7 +33,7 @@ export default class EasyFrida {
     onMessage: frida.ScriptMessageHandler = null
 
     device?: frida.Device
-    compileOptions: compiler.Options
+    compileOptions: any//frida.BuildOptions
 
     private baseDir = process.cwd()
     private agentProjectDir = path.join(this.baseDir, "agent/")
@@ -51,21 +47,20 @@ export default class EasyFrida {
     private remoteEvalCallbacks: {
         [index: string]: (result: any) => void
     } = {}
-    private watcher: TypedEmitter<compiler.WatcherEvents>
+    private compiler: frida.Compiler
+    private compilationStarted: number
 
     constructor(public target: number | string | string[], public location: 'usb' | 'local' | 'remote', public targetos: 'win' | 'linux' | 'android' | 'ios', public remoteAddr?: string) {
-        const system = getNodeSystem();
-        system.write = this.log;
-        system.clearScreen = undefined;
         this.compileOptions = {
             projectRoot: this.agentProjectDir,
             entrypoint: "",
-            assets: compiler.queryDefaultAssets(this.agentProjectDir, system),
-            system: system,
             sourceMaps: "included",
             compression: "none",
-            onDiagnostic: this.onCompileDiagnostic
         }
+        this.compiler = new frida.Compiler();
+        this.compiler.starting.connect(this.onCompileStarting);
+        this.compiler.finished.connect(this.onCompileFinished);
+        this.compiler.diagnostics.connect(this.onCompileDiagnostics);
     }
 
     run(target = this.target): Promise<boolean> {
@@ -271,26 +266,36 @@ export default class EasyFrida {
      * @output will at this.outFile
      */
     compile(file: string): Promise<void> {
-        return new Promise(resolve => {
+        return new Promise((resolve, reject) => {
             process.chdir(this.agentProjectDir);
             lock.acquire('compile', async () => {
                 this.compileOptions.entrypoint = file;
-                const bundle = compiler.build(this.compileOptions);
-                fs.writeFileSync(this.outFile, bundle!);
-                resolve();
+                this.compiler.build(file, this.compileOptions).then(bundle => {
+                    fs.writeFileSync(this.outFile, bundle);
+                    resolve();
+                }).catch(e => reject(e));
             }, null, null);
             process.chdir(this.baseDir);
         })
     }
 
-    onCompileDiagnostic = (diagnostic: ts.Diagnostic) => {
-        if (diagnostic.file !== undefined) {
-            const { line, character } = ts.getLineAndCharacterOfPosition(diagnostic.file, diagnostic.start!);
-            const message = ts.flattenDiagnosticMessageText(diagnostic.messageText, "\n");
-            this.log(`${diagnostic.file.fileName} (${line + 1},${character + 1}): ${message}`);
-        } else {
-            this.log(ts.flattenDiagnosticMessageText(diagnostic.messageText, "\n"));
+    onCompileDiagnostics = (diagnostics: any[]) => {
+        for (const diag of diagnostics) {
+            if (diag.file) {
+            this.log(`${diag.file.path} (${diag.file.line},${diag.file.character}): ${diag.text}`);
+            } else {
+                this.log(diag.text);
+            }
         }
+    }
+
+    onCompileStarting = () => {
+        this.compilationStarted = performance.now();
+        this.log(`Compiling...`);
+    }
+    onCompileFinished = () => {
+        const elapsed = Math.floor(performance.now() - this.compilationStarted);
+        this.log(`Compiled (${elapsed} ms)`);
     }
 
     /**
@@ -332,8 +337,7 @@ export default class EasyFrida {
         await this.attachOrRun(target);
         process.chdir(this.agentProjectDir);
         this.compileOptions.entrypoint = file;
-        this.watcher = compiler.watch(this.compileOptions)
-        .on('bundleUpdated', bundle => {
+        this.compiler.output.connect(bundle => {
             fs.writeFileSync(this.outFile, bundle);
             if(this.interacting && this.scopeCount > 0) {
                 this.log(`[!] can't reload when within local scope, please quit scope and retry.`);
@@ -342,7 +346,7 @@ export default class EasyFrida {
             }
         });
         process.chdir(this.baseDir);
-        return this.watcher;
+        return this.compiler.watch(file, this.compileOptions);
     }
 
     /**

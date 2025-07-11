@@ -23,7 +23,7 @@ export function getApi() {
 
 export function setSSLKeyListener(listener: (id: ArrayBuffer, key: ArrayBuffer) => any) {
     const api = getApi()
-    const SSL_connect_addr = Module.findExportByName(null, "SSL_connect")
+    const SSL_connect_addr = Module.findGlobalExportByName("SSL_connect")
     Interceptor.attach(SSL_connect_addr, {
         onEnter: function(args) {
             this.ssl = args[0]
@@ -59,7 +59,7 @@ export function setKeyLog(filePath: string) {
 }
 
 export function setSendListener(listener: (buffer: NativePointer, len: number) => void) {
-    Interceptor.attach(Module.findExportByName(null, "SSL_write"), {
+    Interceptor.attach(Module.findGlobalExportByName("SSL_write"), {
         onEnter: function(args) {
             listener(args[1], parseInt(args[2].toString()));
         }
@@ -67,7 +67,7 @@ export function setSendListener(listener: (buffer: NativePointer, len: number) =
 }
 
 export function setRecvListener(listener: (buffer: NativePointer, len: number) => void) {
-    Interceptor.attach(Module.findExportByName(null, "SSL_read"), {
+    Interceptor.attach(Module.findGlobalExportByName("SSL_read"), {
         onEnter: function(args) {
             this.buf = ptr(<any>args[1])
         },

@@ -1,0 +1,7 @@
+{
+	"dependencies": {
+		"@types/frida-gum": "^19.0.0",
+		"@types/node": "18.19.111",
+		"frida-java-bridge": "^7.0.4"
+	}
+}

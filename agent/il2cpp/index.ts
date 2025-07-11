@@ -717,7 +717,7 @@ function addrSymbolInit() {
     const linkSymbols: CSymbols = {};
     const libil2cpp = Process.findModuleByName("libil2cpp.so");
 
-    linkSymbols["__android_log_print"] = Module.findExportByName(null, "__android_log_print");
+    linkSymbols["__android_log_print"] = Module.findGlobalExportByName("__android_log_print");
     linkSymbols["il2cpp_domain_get"] = libil2cpp.findExportByName("il2cpp_domain_get");
     linkSymbols["il2cpp_assembly_get_image"] = libil2cpp.findExportByName("il2cpp_assembly_get_image");
     linkSymbols["il2cpp_class_get_methods"] = libil2cpp.findExportByName("il2cpp_class_get_methods");

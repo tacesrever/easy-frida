@@ -2,6 +2,7 @@
 import * as http from 'http';
 import * as url from 'url';
 import * as qs from 'querystring';
+import Java from 'frida-java-bridge';
 
 const routeMap: {
     [index: string]: http.RequestListener

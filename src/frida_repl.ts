@@ -61,7 +61,7 @@ export class FridaRepl {
                 return;
             }
             if(code.startsWith(LocalEvalPrefix)) {
-                callback(null, this.localEval(code.substr(LocalEvalPrefix.length)));
+                callback(null, this.localEval(code.substring(LocalEvalPrefix.length)));
                 return;
             }
             
@@ -81,7 +81,7 @@ export class FridaRepl {
     private remoteCompleter = (line: string, callback: EvalCallback) => {
         let groups = [];
         let completeOn: string, expr: string, filter: string, match: RegExpMatchArray;
-        line = line.trimLeft();
+        line = line.trimStart();
         if (line.length === 0 || /\w|\.|\$/.test(line[line.length - 1])) {
             match = SimpleExpressionRE.exec(line);
             if (line.length !== 0 && !match) {

@@ -2,6 +2,8 @@
 import { interact, isServer } from './index.js';
 import { cprintf, d, importfunc, readStdString } from './native.js';
 import { findElfSegment } from './linux.js';
+import Java from 'frida-java-bridge';
+globalThis.Java = Java;
 
 export function showJavaBacktrace() {
     console.log(javaBacktrace());
@@ -20,7 +22,7 @@ export function showJavaCaller() {
  */
 export function showLogcat(level: number = 255) {
     const levelstrs = ['F', 'E', 'W', 'I', 'D', 'V'];
-    const logPrintAddr = Module.findExportByName(null, "__android_log_print");
+    const logPrintAddr = Module.findGlobalExportByName("__android_log_print");
     if(logPrintAddr === null) return;
     Interceptor.attach(logPrintAddr, {
         onEnter: function(args) {
@@ -163,15 +165,13 @@ export function avoidConflict(gadgetName = "libadirf.so") {
     }
 }
 
+const android_log_print = importfunc(null, "__android_log_print", 'int', ['int', 'string', 'string']);
 export function adbLog(...args: any[]) {
-    Java.perform(function() {
-        const Log = Java.use("android.util.Log");
-        let logstr = "";
-        args.forEach(a => {
-            if(a && a.toString) logstr += a.toString() + " ";
-        });
-        Log.d("frida", logstr);
+    let logstr = "";
+    args.forEach(a => {
+        if(a && a.toString) logstr += a.toString() + " ";
     });
+    android_log_print(4, "frida", logstr);
 }
 
 /**
@@ -375,7 +375,9 @@ const close = importfunc("libc.so", "close", 'int', ['int']);
  */
 export function dumpBacktraceToFile(tid: number, type: DumpType, outfile: string) {
     if(_dump_backtrace_to_file === null) {
-        let address = Module.findExportByName("libdebuggerd_client.so", "_Z22dump_backtrace_to_filei17DebuggerdDumpTypei");
+        let m = Process.findModuleByName("libdebuggerd_client.so");
+        if(!m) return;
+        let address = m.findSymbolByName("_Z22dump_backtrace_to_filei17DebuggerdDumpTypei");
         if(address === null) return;
         _dump_backtrace_to_file = new NativeFunction(address, 'int', ['uint', 'int', 'int']);
     }

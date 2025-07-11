@@ -51,7 +51,7 @@ type GetNativeFunctionArgumentValueEx<T extends NativeFunctionArgumentTypeEx> = 
     T
 >;
 
-interface NativeFunctionEx<RetType extends NativeFunctionReturnValueEx, ArgTypes extends NativeFunctionArgumentValueEx[] | []>
+export interface NativeFunctionEx<RetType extends NativeFunctionReturnValueEx, ArgTypes extends NativeFunctionArgumentValueEx[] | []>
     extends NativePointer {
     (...args: ArgTypes): RetType;
     apply(thisArg: NativePointerValue | null | undefined, args: ArgTypes): RetType;
@@ -66,9 +66,13 @@ export function importfunc <RetType extends NativeFunctionReturnTypeEx, ArgTypes
         abiOrOptions?: NativeABI | NativeFunctionOptions) {
     let funcAddress: NativePointerValue;
     
-    if (libnameOrFuncaddr === null || typeof libnameOrFuncaddr === 'string') {
-        funcAddress = Module.getExportByName(libnameOrFuncaddr as any, funcName);
-    } else funcAddress = libnameOrFuncaddr;
+    if(!libnameOrFuncaddr) {
+        funcAddress = Module.getGlobalExportByName(funcName);
+    } else if(typeof(libnameOrFuncaddr) == 'string') {
+        funcAddress = Process.getModuleByName(libnameOrFuncaddr).getExportByName(funcName);
+    } else {
+        funcAddress = libnameOrFuncaddr;
+    }
     
     const realRetType = retType === 'string' ? 'pointer' : retType;
     const realArgTypes = argTypes.map(argType => argType === 'string' ? 'pointer' : argType);
@@ -226,8 +230,10 @@ function getArgName(name: string) {
 
 export function traceCalled(libnameOrFuncaddr: string | NativePointerValue | null, funcName: string) {
     let funcAddr: NativePointerValue;
-    if(!libnameOrFuncaddr || typeof(libnameOrFuncaddr) == 'string') {
-        funcAddr = Module.getExportByName(libnameOrFuncaddr as any, funcName);
+    if(!libnameOrFuncaddr) {
+        funcAddr = Module.getGlobalExportByName(funcName);
+    } else if(typeof(libnameOrFuncaddr) == 'string') {
+        funcAddr = Process.getModuleByName(libnameOrFuncaddr).getExportByName(funcName);
     } else {
         funcAddr = libnameOrFuncaddr;
     }
@@ -260,8 +266,10 @@ export function traceFunction(
         argTypes: string[],
         hooks: ScriptInvocationListenerCallbacks = {}) {
     let funcAddr: NativePointerValue;
-    if(libnameOrFuncaddr === null || typeof(libnameOrFuncaddr) == 'string') {
-        funcAddr = Module.getExportByName(libnameOrFuncaddr as any, funcName);
+    if(!libnameOrFuncaddr) {
+        funcAddr = Module.getGlobalExportByName(funcName);
+    } else if(typeof(libnameOrFuncaddr) == 'string') {
+        funcAddr = Process.getModuleByName(libnameOrFuncaddr).getExportByName(funcName);
     } else {
         funcAddr = libnameOrFuncaddr;
     }
@@ -426,7 +434,7 @@ export function showCpuContext(context: CpuContext) {
 
 export function showDiasm(pc: NativePointer) {
     let inst;
-    for(inst = Instruction.parse(pc); !inst.groups.includes('jump'); inst = Instruction.parse(inst.next)) {
+    for(inst = Instruction.parse(pc); !inst.groups.includes('jump') && !inst.groups.includes('ret'); inst = Instruction.parse(inst.next)) {
         console.log(inst.address, inst.mnemonic, inst.opStr);
     }
     console.log(inst.address, inst.mnemonic, inst.opStr);

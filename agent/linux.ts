@@ -51,27 +51,27 @@ export function ELFHeader(base: NativePointer) {
     function SectionHeader(pointer: NativePointer) {
         const sheader: any = {};
         let offset = 0;
-        sheader.nameidx = pointer.readU32();
+        sheader.nameidx = pointer.readU32(); // 0
         offset += 4;
-        sheader.type = pointer.add(offset).readU32();
+        sheader.type = pointer.add(offset).readU32(); // 4
         offset += 4;
-        sheader.flags = parseInt(readPointer(pointer.add(offset)));
+        sheader.flags = parseInt(readPointer(pointer.add(offset))); // 8
         offset += pointerSize;
-        sheader.addrPtr = pointer.add(offset);
+        sheader.addrPtr = pointer.add(offset); // 0x10
         sheader.addr = readPointer(pointer.add(offset));
         offset += pointerSize;
-        sheader.offsetPtr = pointer.add(offset);
-        sheader.offset = readPointer(pointer.add(offset));
+        sheader.offsetPtr = pointer.add(offset); // 0x18
+        sheader.offset = readPointer(pointer.add(offset)); 
         offset += pointerSize;
-        sheader.size = readPointer(pointer.add(offset));
+        sheader.size = readPointer(pointer.add(offset)); // 0x20
         offset += pointerSize;
-        sheader.link = pointer.add(offset).readU32();
+        sheader.link = pointer.add(offset).readU32(); // 0x28
         offset += 4;
-        sheader.info = pointer.add(offset).readU32();
+        sheader.info = pointer.add(offset).readU32(); // 0x2c
         offset += 4;
-        sheader.addralign = readPointer(pointer.add(offset));
+        sheader.addralign = readPointer(pointer.add(offset)); // 0x30
         offset += pointerSize;
-        sheader.entsize = readPointer(pointer.add(offset));
+        sheader.entsize = readPointer(pointer.add(offset)); // 0x38
         return sheader;
     }
 
@@ -84,10 +84,10 @@ export function ELFHeader(base: NativePointer) {
     header.entry = readPointer(base.add(offset));
     offset += pointerSize;
     header.phoffPtr = base.add(offset);
-    header.phoff = readPointer(base.add(offset));
+    header.phoff = readPointer(header.phoffPtr); 
     offset += pointerSize;
     header.shoffPtr = base.add(offset);
-    header.shoff = readPointer(base.add(offset));
+    header.shoff = readPointer(header.shoffPtr);
     offset += pointerSize;
     header.flags = base.add(offset).readU32();
     offset += 4;

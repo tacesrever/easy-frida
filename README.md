@@ -25,11 +25,11 @@ notice: when doing this, your typed code will eval in frida env.
 
     $ git clone https://github.com/tacesrever/easy-frida.git
     $ cd agent/dist/
-    $ npm install
-    $ npm link
+    $ pnpm install
+    $ pnpm link --global
     $ cd easy-frida/
-    $ npm install
-    $ npm link
+    $ pnpm install
+    $ pnpm link --global
 
 ## use  
 
