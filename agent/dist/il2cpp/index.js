@@ -1,14 +1,30 @@
-import { getApi } from './api';
-import { importfunc, symbolName } from '../native';
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.dump = dump;
+exports.enumerateImages = enumerateImages;
+exports.findImageByName = findImageByName;
+exports.getMethodString = getMethodString;
+exports.fromObject = fromObject;
+exports.fromName = fromName;
+exports.fromFullname = fromFullname;
+exports.perform = perform;
+exports.readString = readString;
+exports.newString = newString;
+exports.enumerateAssemblies = enumerateAssemblies;
+exports.enumerateTypes = enumerateTypes;
+exports.il2cppSymbolName = il2cppSymbolName;
+exports.showBacktrace = showBacktrace;
+const api_1 = require("./api");
+const native_1 = require("../native");
 ;
 /**
  * dump il2cpp symbols use https://github.com/tacesrever/Il2CppParser
  * require libparser compiled and pushed at /data/local/tmp/libparser.so
  */
-export function dump(addrfile, outname) {
+function dump(addrfile, outname) {
     const libparser = Module.load('/data/local/tmp/libparser.so');
-    const init = importfunc('libparser.so', 'init', 'pointer', ['string']);
-    const dumpAll = importfunc('libparser.so', 'dumpAll', 'pointer', ['string', 'string']);
+    const init = (0, native_1.importfunc)('libparser.so', 'init', 'pointer', ['string']);
+    const dumpAll = (0, native_1.importfunc)('libparser.so', 'dumpAll', 'pointer', ['string', 'string']);
     const parser_log = new NativeCallback(function () {
         console.log(arguments[0].readCString());
     }, 'void', ['pointer']);
@@ -21,8 +37,8 @@ let cachedImages = [];
 /**
  * enumerate loaded Images.
  */
-export function enumerateImages() {
-    const api = getApi();
+function enumerateImages() {
+    const api = (0, api_1.getApi)();
     let result = [];
     const domain = api.il2cpp_domain_get();
     const sizePtr = Memory.alloc(Process.pointerSize);
@@ -41,7 +57,7 @@ export function enumerateImages() {
     cachedImages = result;
     return result;
 }
-export function findImageByName(name) {
+function findImageByName(name) {
     const images = enumerateImages();
     for (let image of images) {
         if (image.name === name)
@@ -50,7 +66,7 @@ export function findImageByName(name) {
     return null;
 }
 function isStaticField(field) {
-    const api = getApi();
+    const api = (0, api_1.getApi)();
     const offset = api.il2cpp_field_get_offset(field);
     const attrs = api.il2cpp_field_get_flags(field);
     // FIELD_ATTRIBUTE_STATIC
@@ -62,7 +78,7 @@ function isStaticField(field) {
     return false;
 }
 function isLocalField(field) {
-    const api = getApi();
+    const api = (0, api_1.getApi)();
     if (isStaticField(field))
         return false;
     const attrs = api.il2cpp_field_get_flags(field);
@@ -71,15 +87,15 @@ function isLocalField(field) {
     return true;
 }
 function isStaticMethod(method) {
-    const api = getApi();
+    const api = (0, api_1.getApi)();
     const attrs = api.il2cpp_method_get_flags(method, ptr(0));
     // Method_ATTRIBUTE_STATIC
     if (attrs & 0x10)
         return true;
     return false;
 }
-export function getMethodString(method) {
-    const api = getApi();
+function getMethodString(method) {
+    const api = (0, api_1.getApi)();
     let declare = "";
     const clz = api.il2cpp_method_get_class(method);
     const clzName = api.il2cpp_class_get_name(clz).readCString();
@@ -109,12 +125,14 @@ const il2CppException = Memory.alloc(Process.pointerSize);
 const exceptionMessage = Memory.alloc(0x1000);
 const exceptionStack = Memory.alloc(0x4000);
 class Il2cppMethod extends Function {
+    parent;
+    methodname;
+    methods = {};
+    curmidx = -1;
     constructor(parent, methodname) {
         super();
         this.parent = parent;
         this.methodname = methodname;
-        this.methods = {};
-        this.curmidx = -1;
         return new Proxy(this, {
             apply(target, thisArg, argumentsList) {
                 return target.invoke(...argumentsList);
@@ -138,7 +156,7 @@ class Il2cppMethod extends Function {
         return this;
     }
     addOverload(method) {
-        const api = getApi();
+        const api = (0, api_1.getApi)();
         const argcount = api.il2cpp_method_get_param_count(method);
         const minfo = Object.create({});
         minfo.isStatic = isStaticMethod(method);
@@ -176,7 +194,7 @@ class Il2cppMethod extends Function {
         this.methods[argcount] = minfo;
     }
     invoke(...args) {
-        const api = getApi();
+        const api = (0, api_1.getApi)();
         let objectPtr = ptr(0);
         const argcount = args.length;
         if (this.parent.$handle !== undefined)
@@ -229,7 +247,7 @@ let cachedClass = {};
  * get il2cpp class warpper by classinfo.
  */
 function fromClass(handle) {
-    const api = getApi();
+    const api = (0, api_1.getApi)();
     const tmpPtr = Memory.alloc(Process.pointerSize);
     const self = Object.create({});
     let curclz = handle;
@@ -308,8 +326,8 @@ function fromClass(handle) {
 /**
  * get il2cpp object warpper by object pointer.
  */
-export function fromObject(handle) {
-    const api = getApi();
+function fromObject(handle) {
+    const api = (0, api_1.getApi)();
     if (typeof (handle) === 'number')
         handle = ptr(handle);
     if (handle.isNull())
@@ -385,8 +403,8 @@ export function fromObject(handle) {
 /**
  * get il2cpp class warpper by it's image, namespace and name.
  */
-export function fromName(image, namespace, name) {
-    const api = getApi();
+function fromName(image, namespace, name) {
+    const api = (0, api_1.getApi)();
     if (api === null)
         return null;
     if (typeof (namespace) === 'string')
@@ -416,7 +434,7 @@ export function fromName(image, namespace, name) {
 /**
  * get il2cpp class warpper by it's fullname.
  */
-export function fromFullname(fullname) {
+function fromFullname(fullname) {
     let splited = fullname.split(".");
     let name = splited[splited.length - 1];
     let namespace;
@@ -435,8 +453,8 @@ export function fromFullname(fullname) {
 /**
  * ensure current thread is attach to il2cpp main domain.
  */
-export function perform(callback) {
-    const api = getApi();
+function perform(callback) {
+    const api = (0, api_1.getApi)();
     const thread = api.il2cpp_thread_attach(api.il2cpp_domain_get());
     callback();
     api.il2cpp_thread_detach(thread);
@@ -444,7 +462,7 @@ export function perform(callback) {
 /**
  * read a .net string, if maxlen seted and str is too long, show ... after maxlen.
  */
-export function readString(handle, maxlen) {
+function readString(handle, maxlen) {
     let strhandle;
     if (typeof (handle) === 'number' || typeof (handle) === 'bigint')
         strhandle = ptr(handle);
@@ -463,14 +481,14 @@ export function readString(handle, maxlen) {
 /**
  * construct a .net string, return il2cpp object's pointer
  */
-export function newString(s) {
-    const api = getApi();
+function newString(s) {
+    const api = (0, api_1.getApi)();
     const sptr = Memory.allocUtf8String(s);
     return api.il2cpp_string_new(sptr);
 }
 ;
 let assemblies = null;
-export function enumerateAssemblies() {
+function enumerateAssemblies() {
     if (assemblies === null)
         assemblies = fromFullname("System.AppDomain").get_CurrentDomain().GetAssemblies();
     const result = [];
@@ -484,7 +502,7 @@ export function enumerateAssemblies() {
     }
     return result;
 }
-export function enumerateTypes(filter) {
+function enumerateTypes(filter) {
     const result = {};
     enumerateAssemblies().forEach(item => {
         if (filter !== undefined && filter.indexOf(item.name) < 0)
@@ -681,7 +699,7 @@ function findGetTypeInfoFromTypeDefinitionIndex() {
 function addrSymbolInit() {
     const linkSymbols = {};
     const libil2cpp = Process.findModuleByName("libil2cpp.so");
-    linkSymbols["__android_log_print"] = Module.findExportByName(null, "__android_log_print");
+    linkSymbols["__android_log_print"] = Module.findGlobalExportByName("__android_log_print");
     linkSymbols["il2cpp_domain_get"] = libil2cpp.findExportByName("il2cpp_domain_get");
     linkSymbols["il2cpp_assembly_get_image"] = libil2cpp.findExportByName("il2cpp_assembly_get_image");
     linkSymbols["il2cpp_class_get_methods"] = libil2cpp.findExportByName("il2cpp_class_get_methods");
@@ -698,7 +716,7 @@ function addrSymbolInit() {
     const fcmdline = File.readAllBytes("/proc/self/cmdline");
     const appname = fcmdline.unwrap().readCString();
     const savefile = `/data/data/${appname}/files/ILBT_method_order`;
-    const access = importfunc(null, "access", 'int', ['string', 'int']);
+    const access = (0, native_1.importfunc)(null, "access", 'int', ['string', 'int']);
     if (access(savefile, 4) === 0) {
         console.log(`found ${savefile}, loading...`);
         const method_order = File.readAllBytes(savefile);
@@ -722,7 +740,7 @@ function addrSymbolInit() {
     Object.defineProperty(btModule, "getMethodInfo", { value: get_method_info });
 }
 // get method symbol string of native function address in libil2cpp.so
-export function il2cppSymbolName(addr) {
+function il2cppSymbolName(addr) {
     if (btModule === null)
         addrSymbolInit();
     const m = Process.findModuleByAddress(addr);
@@ -732,10 +750,10 @@ export function il2cppSymbolName(addr) {
         if (!method.isNull())
             return `libil2cpp.so!${method_ptr.sub(m.base)} ${getMethodString(method)}+${addr.sub(method_ptr)}`;
     }
-    return symbolName(addr);
+    return (0, native_1.symbolName)(addr);
 }
 // show symbolized backtrace in libil2cpp.so
-export function showBacktrace(context) {
+function showBacktrace(context) {
     let bt = Thread.backtrace(context, Backtracer.ACCURATE).map(il2cppSymbolName).join("\n");
     console.log(bt);
 }

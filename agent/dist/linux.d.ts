@@ -1,4 +1,3 @@
-/// <reference types="frida-gum" />
 export declare function ELFHeader(base: NativePointer): any;
 export declare function findElfSegment(moduleOrName: string | Module, segName: string): {
     addr: NativePointer;

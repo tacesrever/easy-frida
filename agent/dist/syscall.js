@@ -1,5 +1,8 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.traceSyscallByStalkerAt = traceSyscallByStalkerAt;
 // TODO
-export function traceSyscallByStalkerAt(addr) {
+function traceSyscallByStalkerAt(addr) {
     const once = Interceptor.attach(addr, function () {
         once.detach();
         Interceptor.flush();

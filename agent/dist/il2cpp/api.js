@@ -1,3 +1,6 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.getApi = getApi;
 const apiFunctions = {
     il2cpp_free: ['pointer', ['pointer']],
     il2cpp_domain_get: ['pointer', []],
@@ -51,7 +54,7 @@ let cachedApi;
 /**
  * get libil2cpp native api functions
  */
-export function getApi() {
+function getApi() {
     if (cachedApi !== undefined)
         return cachedApi;
     const tempApi = Object.create(null);

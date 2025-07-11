@@ -1,4 +1,3 @@
-/// <reference types="frida-gum" />
 export declare function getApi(): {
     SSL_get_session: (ssl: NativePointer) => NativePointer;
     SSL_get_client_random: (ssl: NativePointer, outbuf: NativePointer, buflen: number) => number;

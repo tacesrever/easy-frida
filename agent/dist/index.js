@@ -1,3 +1,7 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.isServer = exports.interact = void 0;
+exports.rpcCall = rpcCall;
 Object.defineProperty(String.prototype, "toMatchPattern", {
     value: function () {
         let pattern = [];
@@ -7,7 +11,7 @@ Object.defineProperty(String.prototype, "toMatchPattern", {
         return pattern.join(' ');
     }
 });
-export let interact = '\
+exports.interact = '\
 if(typeof disableInteract === "undefined" || disableInteract === false) {\
     global.disableInteract = false;\
     var interactCode, result, eventType = "scope";\
@@ -40,7 +44,7 @@ if(typeof disableInteract === "undefined" || disableInteract === false) {\
     console.log("[+] Quit local scope.");\
 }\
 ';
-export function rpcCall(funcName, args, noreturn) {
+function rpcCall(funcName, args, noreturn) {
     return new Promise(resolve => {
         send({ "type": "rpc", "function": funcName, "args": args, "noreturn": noreturn });
         if (noreturn)
@@ -50,7 +54,6 @@ export function rpcCall(funcName, args, noreturn) {
         });
     });
 }
-export let isServer;
 let agentName = 'frida-agent';
 if (Process.pointerSize === 4)
     agentName += '-32';
@@ -69,12 +72,12 @@ switch (Process.platform) {
         break;
 }
 if (Process.findModuleByName(agentName) !== null)
-    isServer = true;
+    exports.isServer = true;
 const globalEval = eval;
 rpc.exports.eval = (code) => {
     return new Promise(resolve => {
         let result;
-        if (code.substr(0, 2) !== "j:") {
+        if (code.substring(0, 2) !== "j:") {
             try {
                 result = globalEval(code);
             }
@@ -85,9 +88,9 @@ rpc.exports.eval = (code) => {
         }
         else {
             setImmediate(() => {
-                Java.perform(function () {
+                globalThis.Java.perform(function () {
                     try {
-                        result = globalEval(code.substr(2));
+                        result = globalEval(code.substring(2));
                     }
                     catch (e) {
                         result = e.stack;

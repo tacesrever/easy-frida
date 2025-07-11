@@ -1,4 +1,3 @@
-/// <reference types="frida-gum" />
 export declare function showBacktrace(context?: CpuContext): void;
 /**
  * similar to hexdump,
@@ -14,17 +13,19 @@ type NativeFunctionReturnTypeMapEx = NativeFunctionReturnTypeMap & {
 };
 type NativeFunctionReturnTypeEx = RecursiveKeysOf<NativeFunctionReturnTypeMapEx>;
 type NativeFunctionReturnValueEx = RecursiveValuesOf<NativeFunctionReturnTypeMapEx>;
+type GetNativeFunctionReturnValueEx<T extends NativeFunctionReturnTypeEx> = GetValue<NativeFunctionReturnTypeMapEx, NativeFunctionReturnValueEx, NativeFunctionReturnTypeEx, T>;
 type NativeFunctionArgumentTypeMapEx = NativeFunctionArgumentTypeMap & {
     string: string;
 };
 type NativeFunctionArgumentTypeEx = RecursiveKeysOf<NativeFunctionArgumentTypeMapEx>;
 type NativeFunctionArgumentValueEx = RecursiveValuesOf<NativeFunctionArgumentTypeMapEx>;
-interface NativeFunctionEx<RetType extends NativeFunctionReturnValueEx, ArgTypes extends NativeFunctionArgumentValueEx[] | []> extends NativePointer {
+type GetNativeFunctionArgumentValueEx<T extends NativeFunctionArgumentTypeEx> = GetValue<NativeFunctionArgumentTypeMapEx, NativeFunctionArgumentValueEx, NativeFunctionArgumentTypeEx, T>;
+export interface NativeFunctionEx<RetType extends NativeFunctionReturnValueEx, ArgTypes extends NativeFunctionArgumentValueEx[] | []> extends NativePointer {
     (...args: ArgTypes): RetType;
     apply(thisArg: NativePointerValue | null | undefined, args: ArgTypes): RetType;
     call(thisArg?: NativePointerValue | null, ...args: ArgTypes): RetType;
 }
-export declare function importfunc<RetType extends NativeFunctionReturnTypeEx, ArgTypes extends NativeFunctionArgumentTypeEx[] | []>(libnameOrFuncaddr: string | NativePointerValue | null, funcName: string, retType: RetType, argTypes: ArgTypes, abiOrOptions?: NativeABI | NativeFunctionOptions): NativeFunctionEx<GetValue<NativeFunctionReturnTypeMapEx, NativeFunctionReturnValueEx, NativeFunctionReturnTypeEx, RetType>, ResolveVariadic<Extract<GetValue<NativeFunctionArgumentTypeMapEx, NativeFunctionArgumentValueEx, NativeFunctionArgumentTypeEx, ArgTypes>, unknown[]>>>;
+export declare function importfunc<RetType extends NativeFunctionReturnTypeEx, ArgTypes extends NativeFunctionArgumentTypeEx[] | []>(libnameOrFuncaddr: string | NativePointerValue | null, funcName: string, retType: RetType, argTypes: ArgTypes, abiOrOptions?: NativeABI | NativeFunctionOptions): NativeFunctionEx<GetNativeFunctionReturnValueEx<RetType>, ResolveVariadic<Extract<GetNativeFunctionArgumentValueEx<ArgTypes>, unknown[]>>>;
 /**
  * set custom debug symbol name to range.
  * show as name or name+offset.

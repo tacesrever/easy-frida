@@ -1,4 +1,3 @@
-/// <reference types="node" />
 import repl from 'repl';
 export declare class FridaRepl {
     private localEval;

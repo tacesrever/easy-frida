@@ -1,8 +1,4 @@
-/// <reference types="node" />
-import TypedEmitter from "typed-emitter";
 import frida from 'frida';
-import * as compiler from 'frida-compile';
-import ts from 'frida-compile/ext/typescript.js';
 import { REPLCommand, REPLCommandAction } from 'repl';
 export default class EasyFrida {
     target: number | string | string[];
@@ -17,7 +13,7 @@ export default class EasyFrida {
     logFile?: string;
     onMessage: frida.ScriptMessageHandler;
     device?: frida.Device;
-    compileOptions: compiler.Options;
+    compileOptions: any;
     private baseDir;
     private agentProjectDir;
     private outFile;
@@ -28,7 +24,8 @@ export default class EasyFrida {
     private scopeCount;
     private prompt;
     private remoteEvalCallbacks;
-    private watcher;
+    private compiler;
+    private compilationStarted;
     constructor(target: number | string | string[], location: 'usb' | 'local' | 'remote', targetos: 'win' | 'linux' | 'android' | 'ios', remoteAddr?: string);
     run(target?: string | number | string[]): Promise<boolean>;
     Input(data: Buffer, target?: number): Promise<void>;
@@ -52,7 +49,9 @@ export default class EasyFrida {
      * @output will at this.outFile
      */
     compile(file: string): Promise<void>;
-    onCompileDiagnostic: (diagnostic: ts.Diagnostic) => void;
+    onCompileDiagnostics: (diagnostics: any[]) => void;
+    onCompileStarting: () => void;
+    onCompileFinished: () => void;
     /**
      * Load a single js file into current attached process
      * @param file path of the js file, default is this.outFile
@@ -64,7 +63,7 @@ export default class EasyFrida {
      * @param file path of main ts/js file
      * @param target target process name, default is this.target
      */
-    watch(file: string, target?: string | number | string[]): Promise<TypedEmitter<compiler.WatcherEvents>>;
+    watch(file: string, target?: string | number | string[]): Promise<void>;
     /**
      * Start a repl that can eval jscode in remote frida attached process. Use `!jscode` to eval code at local, in which `this` will be the EasyFrida instance.
      * @param finallyKill When exit from repl, target will be killed if true, otherwize only detach. Default value is false.

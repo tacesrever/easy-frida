@@ -1,4 +1,24 @@
-export function showBacktrace(context) {
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.showBacktrace = showBacktrace;
+exports.d = d;
+exports.importfunc = importfunc;
+exports.setName = setName;
+exports.symbolName = symbolName;
+exports.showAddrInfo = showAddrInfo;
+exports.dumpMem = dumpMem;
+exports.traceCalled = traceCalled;
+exports.traceFunction = traceFunction;
+exports.readStdString = readStdString;
+exports.cprintf = cprintf;
+exports.showThreads = showThreads;
+exports.showThread = showThread;
+exports.showCpuContext = showCpuContext;
+exports.showDiasm = showDiasm;
+exports.traceExecBlockByStalkerAt = traceExecBlockByStalkerAt;
+exports.showNativeExecption = showNativeExecption;
+exports.setThreadStackRangeNames = setThreadStackRangeNames;
+function showBacktrace(context) {
     let bt = Thread.backtrace(context, Backtracer.ACCURATE).map(symbolName).join("\n\t");
     console.log('\t' + bt);
 }
@@ -6,7 +26,7 @@ export function showBacktrace(context) {
  * similar to hexdump,
  * for lazy people who don't want to write "console.log(hexdump(...))" when debuging.
  */
-export function d(address, size) {
+function d(address, size) {
     let p;
     if (address instanceof NativePointer) {
         p = address;
@@ -21,13 +41,17 @@ export function d(address, size) {
         console.log(hexdump(p));
     }
 }
-export function importfunc(libnameOrFuncaddr, funcName, retType, argTypes, abiOrOptions) {
+function importfunc(libnameOrFuncaddr, funcName, retType, argTypes, abiOrOptions) {
     let funcAddress;
-    if (libnameOrFuncaddr === null || typeof libnameOrFuncaddr === 'string') {
-        funcAddress = Module.getExportByName(libnameOrFuncaddr, funcName);
+    if (!libnameOrFuncaddr) {
+        funcAddress = Module.getGlobalExportByName(funcName);
     }
-    else
+    else if (typeof (libnameOrFuncaddr) == 'string') {
+        funcAddress = Process.getModuleByName(libnameOrFuncaddr).getExportByName(funcName);
+    }
+    else {
         funcAddress = libnameOrFuncaddr;
+    }
     const realRetType = retType === 'string' ? 'pointer' : retType;
     const realArgTypes = argTypes.map(argType => argType === 'string' ? 'pointer' : argType);
     let nativeFunction = new NativeFunction(funcAddress, realRetType, realArgTypes, abiOrOptions);
@@ -60,12 +84,12 @@ let customNames = [];
  * set custom debug symbol name to range.
  * show as name or name+offset.
  */
-export function setName(address, size, name) {
+function setName(address, size, name) {
     if (address instanceof NativePointer)
         address = parseInt(address.toString());
     customNames.push({ address, size, name });
 }
-export function symbolName(address) {
+function symbolName(address) {
     let name;
     if (typeof address === 'number')
         address = ptr(address);
@@ -114,7 +138,7 @@ export function symbolName(address) {
 /**
  * show addrinfo from DebugSymbol.fromAddress, findModuleByAddress and findRangeByAddress.
  */
-export function showAddrInfo(address) {
+function showAddrInfo(address) {
     if (typeof address === 'number')
         address = ptr(address);
     const debugSymbol = DebugSymbol.fromAddress(address);
@@ -129,7 +153,7 @@ export function showAddrInfo(address) {
 /**
  * dump memory to file.
  */
-export function dumpMem(address, size, outname) {
+function dumpMem(address, size, outname) {
     if (typeof address === 'number')
         address = ptr(address);
     const out = new File(outname, "wb");
@@ -180,10 +204,13 @@ function readNativeArg(handle, name) {
 function getArgName(name) {
     return name.substring(name.indexOf(".") + 1);
 }
-export function traceCalled(libnameOrFuncaddr, funcName) {
+function traceCalled(libnameOrFuncaddr, funcName) {
     let funcAddr;
-    if (!libnameOrFuncaddr || typeof (libnameOrFuncaddr) == 'string') {
-        funcAddr = Module.getExportByName(libnameOrFuncaddr, funcName);
+    if (!libnameOrFuncaddr) {
+        funcAddr = Module.getGlobalExportByName(funcName);
+    }
+    else if (typeof (libnameOrFuncaddr) == 'string') {
+        funcAddr = Process.getModuleByName(libnameOrFuncaddr).getExportByName(funcName);
     }
     else {
         funcAddr = libnameOrFuncaddr;
@@ -210,10 +237,13 @@ export function traceCalled(libnameOrFuncaddr, funcName) {
  * w: Pointer => Pointer => Value
  * example: traceFunction(null, 'open', 'i.fd', ['s.name', 'p.flag'])
  */
-export function traceFunction(libnameOrFuncaddr, funcName, retType, argTypes, hooks = {}) {
+function traceFunction(libnameOrFuncaddr, funcName, retType, argTypes, hooks = {}) {
     let funcAddr;
-    if (libnameOrFuncaddr === null || typeof (libnameOrFuncaddr) == 'string') {
-        funcAddr = Module.getExportByName(libnameOrFuncaddr, funcName);
+    if (!libnameOrFuncaddr) {
+        funcAddr = Module.getGlobalExportByName(funcName);
+    }
+    else if (typeof (libnameOrFuncaddr) == 'string') {
+        funcAddr = Process.getModuleByName(libnameOrFuncaddr).getExportByName(funcName);
     }
     else {
         funcAddr = libnameOrFuncaddr;
@@ -284,7 +314,7 @@ export function traceFunction(libnameOrFuncaddr, funcName, retType, argTypes, ho
 /**
  * https://codeshare.frida.re/@oleavr/read-std-string/
  */
-export function readStdString(strHandle) {
+function readStdString(strHandle) {
     const isTiny = (strHandle.readU8() & 1) === 0;
     if (isTiny) {
         return strHandle.add(1).readUtf8String();
@@ -292,7 +322,7 @@ export function readStdString(strHandle) {
     return strHandle.add(2 * Process.pointerSize).readPointer().readUtf8String();
 }
 ;
-export function cprintf(format, args, vaArgIndex = 1, maxSize = 0x1000) {
+function cprintf(format, args, vaArgIndex = 1, maxSize = 0x1000) {
     let count = 0;
     for (let i = 0; i < format.length - 1; ++i) {
         if (format[i] === '%') {
@@ -313,7 +343,7 @@ export function cprintf(format, args, vaArgIndex = 1, maxSize = 0x1000) {
     return buffer.readUtf8String();
 }
 ;
-export function showThreads() {
+function showThreads() {
     const pthread_getname_np = importfunc(null, "pthread_getname_np", 'int', ['pointer', 'pointer']);
     let threads = Process.enumerateThreads();
     let buf = Memory.alloc(0x100);
@@ -330,7 +360,7 @@ export function showThreads() {
         console.log(`[${t.id}:${t.state}] pc:${symbolName(t.context.pc)}`);
     }
 }
-export function showThread(tid) {
+function showThread(tid) {
     const pthread_getname_np = importfunc(null, "pthread_getname_np", 'int', ['pointer', 'pointer']);
     let thread = Process.enumerateThreads().filter(t => t.id === tid)[0];
     if (thread) {
@@ -345,7 +375,7 @@ export function showThread(tid) {
         showBacktrace(thread.context);
     }
 }
-export function showCpuContext(context) {
+function showCpuContext(context) {
     let i = 0, regsinfo = "";
     for (const regname of Object.getOwnPropertyNames(context.__proto__)) {
         if (regname === "toJSON")
@@ -379,15 +409,15 @@ export function showCpuContext(context) {
         console.log("At", symbolName(context.pc), "??");
     }
 }
-export function showDiasm(pc) {
+function showDiasm(pc) {
     let inst;
-    for (inst = Instruction.parse(pc); !inst.groups.includes('jump'); inst = Instruction.parse(inst.next)) {
+    for (inst = Instruction.parse(pc); !inst.groups.includes('jump') && !inst.groups.includes('ret'); inst = Instruction.parse(inst.next)) {
         console.log(inst.address, inst.mnemonic, inst.opStr);
     }
     console.log(inst.address, inst.mnemonic, inst.opStr);
 }
 //shouldShow: (context: CpuContext) => boolean, shouldBreak: (context: CpuContext) => boolean, shouldStop: (context: CpuContext) => boolean
-export function traceExecBlockByStalkerAt(addr, onExecBlock) {
+function traceExecBlockByStalkerAt(addr, onExecBlock) {
     const compiledBlocks = {};
     const once = Interceptor.attach(addr, function () {
         once.detach();
@@ -439,7 +469,7 @@ export function traceExecBlockByStalkerAt(addr, onExecBlock) {
         }
     });
 }
-export function showNativeExecption(handler) {
+function showNativeExecption(handler) {
     Process.setExceptionHandler(function (details) {
         if (details.memory) {
             console.log(details.type, details.memory.operation, details.memory.address, "at", details.address);
@@ -452,7 +482,7 @@ export function showNativeExecption(handler) {
             return handler(details);
     });
 }
-export function setThreadStackRangeNames() {
+function setThreadStackRangeNames() {
     Process.enumerateThreads().forEach(function (thread) {
         const stackRange = Process.findRangeByAddress(thread.context.sp);
         setName(stackRange.base, stackRange.size, "tid-" + thread.id + "-stack");

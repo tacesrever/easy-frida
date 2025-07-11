@@ -1,4 +1,3 @@
-/// <reference types="frida-gum" />
 interface Image {
     name: string | null;
     handle: NativePointer;

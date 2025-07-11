@@ -1,6 +1,46 @@
-import * as native from './native';
+"use strict";
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.getApi = getApi;
+exports.setSSLKeyListener = setSSLKeyListener;
+exports.setKeyLog = setKeyLog;
+exports.setSendListener = setSendListener;
+exports.setRecvListener = setRecvListener;
+const native = __importStar(require("./native"));
 let _api = undefined;
-export function getApi() {
+function getApi() {
     if (_api === undefined) {
         _api = Object.create({});
         _api.SSL_get_session = native.importfunc(null, "SSL_get_session", 'pointer', ['pointer']);
@@ -11,9 +51,9 @@ export function getApi() {
     }
     return _api;
 }
-export function setSSLKeyListener(listener) {
+function setSSLKeyListener(listener) {
     const api = getApi();
-    const SSL_connect_addr = Module.findExportByName(null, "SSL_connect");
+    const SSL_connect_addr = Module.findGlobalExportByName("SSL_connect");
     Interceptor.attach(SSL_connect_addr, {
         onEnter: function (args) {
             this.ssl = args[0];
@@ -31,7 +71,7 @@ export function setSSLKeyListener(listener) {
 function buf2hex(buffer) {
     return Array.prototype.map.call(new Uint8Array(buffer), x => ('00' + x.toString(16).toUpperCase()).slice(-2)).join('');
 }
-export function setKeyLog(filePath) {
+function setKeyLog(filePath) {
     const loged = [];
     setSSLKeyListener(async (id, key) => {
         if (id.byteLength === 0) {
@@ -46,15 +86,15 @@ export function setKeyLog(filePath) {
         logfile.close();
     });
 }
-export function setSendListener(listener) {
-    Interceptor.attach(Module.findExportByName(null, "SSL_write"), {
+function setSendListener(listener) {
+    Interceptor.attach(Module.findGlobalExportByName("SSL_write"), {
         onEnter: function (args) {
             listener(args[1], parseInt(args[2].toString()));
         }
     });
 }
-export function setRecvListener(listener) {
-    Interceptor.attach(Module.findExportByName(null, "SSL_read"), {
+function setRecvListener(listener) {
+    Interceptor.attach(Module.findGlobalExportByName("SSL_read"), {
         onEnter: function (args) {
             this.buf = ptr(args[1]);
         },

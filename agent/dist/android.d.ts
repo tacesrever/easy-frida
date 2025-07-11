@@ -1,4 +1,4 @@
-/// <reference types="frida-gum" />
+import Java from 'frida-java-bridge';
 export declare function showJavaBacktrace(): void;
 export declare function javaBacktrace(): string;
 export declare function showJavaCaller(): void;

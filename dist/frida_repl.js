@@ -54,7 +54,7 @@ export class FridaRepl {
                 return;
             }
             if (code.startsWith(LocalEvalPrefix)) {
-                callback(null, this.localEval(code.substr(LocalEvalPrefix.length)));
+                callback(null, this.localEval(code.substring(LocalEvalPrefix.length)));
                 return;
             }
             this.remoteEval(code).then(result => {
@@ -72,7 +72,7 @@ export class FridaRepl {
     remoteCompleter = (line, callback) => {
         let groups = [];
         let completeOn, expr, filter, match;
-        line = line.trimLeft();
+        line = line.trimStart();
         if (line.length === 0 || /\w|\.|\$/.test(line[line.length - 1])) {
             match = SimpleExpressionRE.exec(line);
             if (line.length !== 0 && !match) {

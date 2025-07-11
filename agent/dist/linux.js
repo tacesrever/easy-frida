@@ -1,3 +1,9 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.ELFHeader = ELFHeader;
+exports.findElfSegment = findElfSegment;
+exports.heapSearch = heapSearch;
+exports.dumplib = dumplib;
 function elfid(base) {
     return {
         magic: base.readByteArray(4),
@@ -8,7 +14,7 @@ function elfid(base) {
         abiversion: base.add(8).readU8()
     };
 }
-export function ELFHeader(base) {
+function ELFHeader(base) {
     const header = {};
     let offset = 0;
     header.id = elfid(base);
@@ -50,27 +56,27 @@ export function ELFHeader(base) {
     function SectionHeader(pointer) {
         const sheader = {};
         let offset = 0;
-        sheader.nameidx = pointer.readU32();
+        sheader.nameidx = pointer.readU32(); // 0
         offset += 4;
-        sheader.type = pointer.add(offset).readU32();
+        sheader.type = pointer.add(offset).readU32(); // 4
         offset += 4;
-        sheader.flags = parseInt(readPointer(pointer.add(offset)));
+        sheader.flags = parseInt(readPointer(pointer.add(offset))); // 8
         offset += pointerSize;
-        sheader.addrPtr = pointer.add(offset);
+        sheader.addrPtr = pointer.add(offset); // 0x10
         sheader.addr = readPointer(pointer.add(offset));
         offset += pointerSize;
-        sheader.offsetPtr = pointer.add(offset);
+        sheader.offsetPtr = pointer.add(offset); // 0x18
         sheader.offset = readPointer(pointer.add(offset));
         offset += pointerSize;
-        sheader.size = readPointer(pointer.add(offset));
+        sheader.size = readPointer(pointer.add(offset)); // 0x20
         offset += pointerSize;
-        sheader.link = pointer.add(offset).readU32();
+        sheader.link = pointer.add(offset).readU32(); // 0x28
         offset += 4;
-        sheader.info = pointer.add(offset).readU32();
+        sheader.info = pointer.add(offset).readU32(); // 0x2c
         offset += 4;
-        sheader.addralign = readPointer(pointer.add(offset));
+        sheader.addralign = readPointer(pointer.add(offset)); // 0x30
         offset += pointerSize;
-        sheader.entsize = readPointer(pointer.add(offset));
+        sheader.entsize = readPointer(pointer.add(offset)); // 0x38
         return sheader;
     }
     header.type = base.add(offset).readU16();
@@ -82,10 +88,10 @@ export function ELFHeader(base) {
     header.entry = readPointer(base.add(offset));
     offset += pointerSize;
     header.phoffPtr = base.add(offset);
-    header.phoff = readPointer(base.add(offset));
+    header.phoff = readPointer(header.phoffPtr);
     offset += pointerSize;
     header.shoffPtr = base.add(offset);
-    header.shoff = readPointer(base.add(offset));
+    header.shoff = readPointer(header.shoffPtr);
     offset += pointerSize;
     header.flags = base.add(offset).readU32();
     offset += 4;
@@ -104,7 +110,7 @@ export function ELFHeader(base) {
     header.SectionHeader = SectionHeader;
     return header;
 }
-export function findElfSegment(moduleOrName, segName) {
+function findElfSegment(moduleOrName, segName) {
     let module;
     if (typeof (moduleOrName) === 'string') {
         module = Process.findModuleByName(moduleOrName);
@@ -128,7 +134,7 @@ export function findElfSegment(moduleOrName, segName) {
         return null;
     }
 }
-export function heapSearch(pattern) {
+function heapSearch(pattern) {
     let ranges = Process.enumerateMallocRanges();
     let result = [];
     ranges.forEach(function (range) {
@@ -136,7 +142,7 @@ export function heapSearch(pattern) {
     });
     return result;
 }
-export function dumplib(name, outfile) {
+function dumplib(name, outfile) {
     const lib = Process.findModuleByName(name);
     const libfile = File.readAllBytes(lib.path);
     const filebase = libfile.unwrap();

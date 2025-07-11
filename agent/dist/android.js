@@ -1,24 +1,49 @@
-import { interact, isServer } from './index.js';
-import { cprintf, d, importfunc, readStdString } from './native.js';
-import { findElfSegment } from './linux.js';
-export function showJavaBacktrace() {
+"use strict";
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.Input = exports.DumpType = void 0;
+exports.showJavaBacktrace = showJavaBacktrace;
+exports.javaBacktrace = javaBacktrace;
+exports.showJavaCaller = showJavaCaller;
+exports.showLogcat = showLogcat;
+exports.showlibevents = showlibevents;
+exports.libraryOnLoad = libraryOnLoad;
+exports.avoidConflict = avoidConflict;
+exports.adbLog = adbLog;
+exports.logScreen = logScreen;
+exports.debugWebView = debugWebView;
+exports.showBacktrace = showBacktrace;
+exports.dumpBacktraceToFile = dumpBacktraceToFile;
+exports.showDialog = showDialog;
+exports.getNativeAddress = getNativeAddress;
+exports.cast = cast;
+exports.objToSimpleString = objToSimpleString;
+exports.traceClass = traceClass;
+const index_js_1 = require("./index.js");
+const native_js_1 = require("./native.js");
+const linux_js_1 = require("./linux.js");
+const frida_java_bridge_1 = __importDefault(require("frida-java-bridge"));
+globalThis.Java = frida_java_bridge_1.default;
+function showJavaBacktrace() {
     console.log(javaBacktrace());
 }
-export function javaBacktrace() {
-    const androidUtilLog = Java.use('android.util.Log');
-    const exception = Java.use('java.lang.Exception').$new();
+function javaBacktrace() {
+    const androidUtilLog = frida_java_bridge_1.default.use('android.util.Log');
+    const exception = frida_java_bridge_1.default.use('java.lang.Exception').$new();
     return androidUtilLog.getStackTraceString(exception);
 }
-export function showJavaCaller() {
+function showJavaCaller() {
     const backtrace = javaBacktrace();
     console.log(backtrace.split("\n")[2]);
 }
 /**
  * show android log at console.
  */
-export function showLogcat(level = 255) {
+function showLogcat(level = 255) {
     const levelstrs = ['F', 'E', 'W', 'I', 'D', 'V'];
-    const logPrintAddr = Module.findExportByName(null, "__android_log_print");
+    const logPrintAddr = Module.findGlobalExportByName("__android_log_print");
     if (logPrintAddr === null)
         return;
     Interceptor.attach(logPrintAddr, {
@@ -30,7 +55,7 @@ export function showLogcat(level = 255) {
                 const fmtstr = args[2].readCString();
                 if (msglevel < levelstrs.length)
                     msglevel = levelstrs[msglevel];
-                console.log(`[${tid}-${msglevel}:${tag}]`, cprintf(fmtstr, args, 3));
+                console.log(`[${tid}-${msglevel}:${tag}]`, (0, native_js_1.cprintf)(fmtstr, args, 3));
             }
         }
     });
@@ -43,8 +68,8 @@ let call_constructors;
  * callback(false) when .init_array funcs not called,
  * callback(true) after.
  */
-const sleep = importfunc("libc.so", "sleep", "void", ["int"]);
-export function showlibevents(timeout = 0) {
+const sleep = (0, native_js_1.importfunc)("libc.so", "sleep", "void", ["int"]);
+function showlibevents(timeout = 0) {
     const address = DebugSymbol.getFunctionByName("__dl__ZN6soinfo17call_constructorsEv");
     let work_around_b_24465209 = true;
     if (Process.arch == "arm64")
@@ -73,20 +98,20 @@ export function showlibevents(timeout = 0) {
             this.libname = libname;
             console.log(`[${tid}] init ${libname} ${base}`);
             if (timeout == -1)
-                eval(interact);
+                eval(index_js_1.interact);
             else if (timeout > 0)
                 sleep(timeout);
         },
         onLeave: function () {
             console.log(`[${this.tid}] ${this.libname} init finished`);
             if (timeout == -1)
-                eval(interact);
+                eval(index_js_1.interact);
             else if (timeout > 0)
                 sleep(timeout);
         }
     });
 }
-export function libraryOnLoad(libname, callback) {
+function libraryOnLoad(libname, callback) {
     monitor_libs.push({ libname, callback });
     if (call_constructors !== undefined)
         return;
@@ -144,12 +169,12 @@ const nullCallBack = new NativeCallback(() => 0, 'int', []);
 /**
  * when gadget already injected and use server, this should be called.
  */
-export function avoidConflict(gadgetName = "libadirf.so") {
-    if (isServer) {
+function avoidConflict(gadgetName = "libadirf.so") {
+    if (index_js_1.isServer) {
         libraryOnLoad(gadgetName, function (inited) {
             if (inited)
                 return;
-            const initseg = findElfSegment(gadgetName, ".init_array");
+            const initseg = (0, linux_js_1.findElfSegment)(gadgetName, ".init_array");
             if (initseg === null)
                 return;
             Memory.protect(initseg.addr, initseg.size, 'rw-');
@@ -162,26 +187,24 @@ export function avoidConflict(gadgetName = "libadirf.so") {
         });
     }
 }
-export function adbLog(...args) {
-    Java.perform(function () {
-        const Log = Java.use("android.util.Log");
-        let logstr = "";
-        args.forEach(a => {
-            if (a && a.toString)
-                logstr += a.toString() + " ";
-        });
-        Log.d("frida", logstr);
+const android_log_print = (0, native_js_1.importfunc)(null, "__android_log_print", 'int', ['int', 'string', 'string']);
+function adbLog(...args) {
+    let logstr = "";
+    args.forEach(a => {
+        if (a && a.toString)
+            logstr += a.toString() + " ";
     });
+    android_log_print(4, "frida", logstr);
 }
 /**
  * log click and activity resume event
  */
-export function logScreen() {
-    Java.perform(function () {
-        const View = Java.use("android.view.View");
-        const Activity = Java.use("android.app.Activity");
+function logScreen() {
+    frida_java_bridge_1.default.perform(function () {
+        const View = frida_java_bridge_1.default.use("android.view.View");
+        const Activity = frida_java_bridge_1.default.use("android.app.Activity");
         function getViewIdStr(_view) {
-            let view = Java.cast(_view, View);
+            let view = frida_java_bridge_1.default.cast(_view, View);
             let r = view.mResources.value;
             let idstr = view.$className;
             let id = view.getId();
@@ -220,9 +243,9 @@ export function logScreen() {
 /**
  * call setWebContentsDebuggingEnabled when WebView created.
  */
-export function debugWebView() {
-    Java.perform(function () {
-        const WebView = Java.use("android.webkit.WebView");
+function debugWebView() {
+    frida_java_bridge_1.default.perform(function () {
+        const WebView = frida_java_bridge_1.default.use("android.webkit.WebView");
         WebView.$init.overload('android.content.Context', 'android.util.AttributeSet', 'int', 'int', 'java.util.Map', 'boolean').implementation = function (...args) {
             WebView.setWebContentsDebuggingEnabled(true);
             console.log("WebView.setWebContentsDebuggingEnabled called");
@@ -270,7 +293,7 @@ tmpStdString.writeByteArray(new Array(0x20).fill(0));
 /**
  * show backtrace using libbacktrace in android.
  */
-export function showBacktrace(tidOrContext) {
+function showBacktrace(tidOrContext) {
     let tid, context;
     let BacktraceCreate;
     let Unwind;
@@ -285,19 +308,19 @@ export function showBacktrace(tidOrContext) {
         }
         if (Process.arch === 'arm') {
             // Backtrace.Create
-            BacktraceCreate = importfunc("libbacktrace.so", "_ZN9Backtrace6CreateEiiP12BacktraceMap", 'pointer', ['int', 'int', 'pointer']);
+            BacktraceCreate = (0, native_js_1.importfunc)("libbacktrace.so", "_ZN9Backtrace6CreateEiiP12BacktraceMap", 'pointer', ['int', 'int', 'pointer']);
             // BacktraceCurrent.Unwind
-            Unwind = importfunc("libbacktrace.so", "_ZN16BacktraceCurrent6UnwindEjPv", 'bool', ['pointer', 'int', 'pointer']);
+            Unwind = (0, native_js_1.importfunc)("libbacktrace.so", "_ZN16BacktraceCurrent6UnwindEjPv", 'bool', ['pointer', 'int', 'pointer']);
             // Backtrace.FormatFrameData
-            FormatFrameData = importfunc("libbacktrace.so", "_ZN9Backtrace15FormatFrameDataEj", 'pointer', ['pointer', 'pointer', 'int']);
+            FormatFrameData = (0, native_js_1.importfunc)("libbacktrace.so", "_ZN9Backtrace15FormatFrameDataEj", 'pointer', ['pointer', 'pointer', 'int']);
         }
         else if (Process.arch === 'arm64') {
             // Backtrace.Create
-            BacktraceCreate = importfunc("libbacktrace.so", "_ZN9Backtrace6CreateEiiP12BacktraceMap", 'pointer', ['int', 'int', 'pointer']);
+            BacktraceCreate = (0, native_js_1.importfunc)("libbacktrace.so", "_ZN9Backtrace6CreateEiiP12BacktraceMap", 'pointer', ['int', 'int', 'pointer']);
             // BacktraceCurrent.Unwind
-            Unwind = importfunc("libbacktrace.so", "_ZN16BacktraceCurrent6UnwindEmPv", 'bool', ['pointer', 'int', 'pointer']);
+            Unwind = (0, native_js_1.importfunc)("libbacktrace.so", "_ZN16BacktraceCurrent6UnwindEmPv", 'bool', ['pointer', 'int', 'pointer']);
             // Backtrace.FormatFrameData
-            FormatFrameData = importfunc("libbacktrace.so", "_ZN9Backtrace15FormatFrameDataEm", 'pointer', ['pointer', 'pointer', 'int']);
+            FormatFrameData = (0, native_js_1.importfunc)("libbacktrace.so", "_ZN9Backtrace15FormatFrameDataEm", 'pointer', ['pointer', 'pointer', 'int']);
         }
     }
     if (tidOrContext === undefined) {
@@ -341,30 +364,33 @@ export function showBacktrace(tidOrContext) {
     let i = 0;
     while (1) {
         threadBacktracer.FormatFrameData(tmpStdString, i);
-        const frameMsg = readStdString(tmpStdString);
+        const frameMsg = (0, native_js_1.readStdString)(tmpStdString);
         if (frameMsg === "")
             break;
         console.log(frameMsg);
         i += 1;
     }
 }
-export var DumpType;
+var DumpType;
 (function (DumpType) {
     DumpType[DumpType["NativeBacktrace"] = 0] = "NativeBacktrace";
     DumpType[DumpType["Tombstone"] = 1] = "Tombstone";
     DumpType[DumpType["JavaBacktrace"] = 2] = "JavaBacktrace";
     DumpType[DumpType["AnyIntercept"] = 3] = "AnyIntercept";
-})(DumpType || (DumpType = {}));
+})(DumpType || (exports.DumpType = DumpType = {}));
 ;
 let _dump_backtrace_to_file = null;
-const open = importfunc("libc.so", "open", 'int', ['string', 'int', 'int']);
-const close = importfunc("libc.so", "close", 'int', ['int']);
+const open = (0, native_js_1.importfunc)("libc.so", "open", 'int', ['string', 'int', 'int']);
+const close = (0, native_js_1.importfunc)("libc.so", "close", 'int', ['int']);
 /**
  * dump backtrace using libdebuggerd_client.
  */
-export function dumpBacktraceToFile(tid, type, outfile) {
+function dumpBacktraceToFile(tid, type, outfile) {
     if (_dump_backtrace_to_file === null) {
-        let address = Module.findExportByName("libdebuggerd_client.so", "_Z22dump_backtrace_to_filei17DebuggerdDumpTypei");
+        let m = Process.findModuleByName("libdebuggerd_client.so");
+        if (!m)
+            return;
+        let address = m.findSymbolByName("_Z22dump_backtrace_to_filei17DebuggerdDumpTypei");
         if (address === null)
             return;
         _dump_backtrace_to_file = new NativeFunction(address, 'int', ['uint', 'int', 'int']);
@@ -374,17 +400,17 @@ export function dumpBacktraceToFile(tid, type, outfile) {
     _dump_backtrace_to_file(tid, type, fd);
     close(fd);
 }
-export function showDialog(activityContext, message) {
-    Java.scheduleOnMainThread(function () {
-        const AlertDialogBuilder = Java.use("android.app.AlertDialog$Builder");
-        const JavaString = Java.use("java.lang.String");
+function showDialog(activityContext, message) {
+    frida_java_bridge_1.default.scheduleOnMainThread(function () {
+        const AlertDialogBuilder = frida_java_bridge_1.default.use("android.app.AlertDialog$Builder");
+        const JavaString = frida_java_bridge_1.default.use("java.lang.String");
         const builder = AlertDialogBuilder.$new(activityContext);
         const s = JavaString.$new(message);
         builder.setMessage(s);
         builder.create().show();
     });
 }
-export function getNativeAddress(methodWarpper) {
+function getNativeAddress(methodWarpper) {
     let params = methodWarpper._p;
     if (params === undefined && methodWarpper._o) {
         if (methodWarpper._o.length === 1)
@@ -399,16 +425,16 @@ export function getNativeAddress(methodWarpper) {
     if (Process.arch === "arm64")
         return methodId.add(0x18).readPointer();
     console.log("not impl");
-    d(methodId);
-    eval(interact);
+    (0, native_js_1.d)(methodId);
+    eval(index_js_1.interact);
 }
-export function cast(obj) {
+function cast(obj) {
     if (obj instanceof Object && obj.$className) {
-        return Java.cast(obj, Java.use(obj.$className));
+        return frida_java_bridge_1.default.cast(obj, frida_java_bridge_1.default.use(obj.$className));
     }
     return obj;
 }
-export function objToSimpleString(obj) {
+function objToSimpleString(obj) {
     let resultStr = "";
     if (obj === 0)
         return "0";
@@ -429,8 +455,8 @@ export function objToSimpleString(obj) {
     }
     return resultStr;
 }
-export function traceClass(className) {
-    const clz = Java.use(className);
+function traceClass(className) {
+    const clz = frida_java_bridge_1.default.use(className);
     const methods = clz.class.getDeclaredMethods();
     for (const method of methods) {
         const methodName = method.getName();
@@ -453,13 +479,13 @@ export function traceClass(className) {
     };
 }
 // rewrite from /system/framework/input.jar
-export var Input;
+var Input;
 (function (Input) {
     function tap(coords) {
-        Java.perform(() => {
-            const MotionEvent = Java.use("android.view.MotionEvent");
-            const InputManager = Java.use("android.hardware.input.InputManager");
-            const SystemClock = Java.use("android.os.SystemClock");
+        frida_java_bridge_1.default.perform(() => {
+            const MotionEvent = frida_java_bridge_1.default.use("android.view.MotionEvent");
+            const InputManager = frida_java_bridge_1.default.use("android.hardware.input.InputManager");
+            const SystemClock = frida_java_bridge_1.default.use("android.os.SystemClock");
             const touchscreenInputSource = 0x1002;
             const deviceId = getInputDeviceId(touchscreenInputSource);
             function randInt(max) {
@@ -485,7 +511,7 @@ export var Input;
     Input.tap = tap;
     ;
     function getInputDeviceId(inputSource) {
-        const InputDevice = Java.use("android.view.InputDevice");
+        const InputDevice = frida_java_bridge_1.default.use("android.view.InputDevice");
         const devIds = InputDevice.getDeviceIds();
         for (let i = 0; i < devIds.length; ++i) {
             let id = devIds[i];
@@ -493,5 +519,5 @@ export var Input;
                 return id;
         }
     }
-})(Input || (Input = {}));
+})(Input || (exports.Input = Input = {}));
 //# sourceMappingURL=android.js.map

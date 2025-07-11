@@ -1,4 +1,3 @@
-/// <reference types="frida-gum" />
 interface Il2cppApi {
     module: Module;
     il2cpp_free: (pointer: NativePointer) => NativePointer;
